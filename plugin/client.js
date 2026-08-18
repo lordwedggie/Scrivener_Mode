@@ -8,19 +8,17 @@ return {
     if (slots === undefined || sessions === undefined) return
 
     styles.insert([
-      '.scr-pane{position:relative;width:100%;height:100%;display:flex;flex-direction:column;background:var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-base,#1e1e28));border-left:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,#eee);font-size:14px}',
+      '.scr-pane{position:relative;width:100%;height:100%;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-2,#1e1e28);border-left:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,#eee);font-size:14px}',
       '.scr-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08))}',
-      '.scr-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#eee)}',
-      '.scr-x{border:none;background:transparent;color:var(--dsw-alias-label-secondary,#bbb);cursor:pointer;font-size:16px;line-height:1;padding:4px}',
-      '.scr-editor{flex:1;overflow:auto;padding:16px;white-space:pre-wrap;line-height:1.7;outline:none;color:var(--dsw-alias-label-primary,#eee)}',
-      '.scr-ins{color:var(--dsw-static-blue-450,#7db1ff)}',
-      '.scr-sel{background:rgba(125,177,255,.22);border-radius:2px}',
-      '.scr-foot{display:flex;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));font-size:12px;color:var(--dsw-alias-label-secondary,#bbb);flex-wrap:wrap}',
+      '.scr-title{font-size:13px;font-weight:600}',
+      '.scr-x{border:none;background:transparent;color:var(--dsw-alias-label-tertiary,#999);cursor:pointer;font-size:16px;line-height:1;padding:4px}',
+      '.scr-editor{flex:1;overflow:auto;padding:16px;white-space:pre-wrap;line-height:1.7;outline:none}',
+      '.scr-foot{display:flex;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));font-size:12px;color:var(--dsw-alias-label-tertiary,#999);flex-wrap:wrap}',
       '.scr-btn{border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-primary,#eee);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}',
       '.scr-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}',
       '.scr-btn:disabled{opacity:.5;cursor:default}',
       '.scr-status{width:100%;color:var(--dsw-alias-label-tertiary,#999)}',
-      '.scr-popup{position:absolute;width:300px;box-sizing:border-box;background:var(--dsw-specific-menu,var(--dsw-alias-bg-overlay,#262635));border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));border-radius:10px;padding:10px;box-shadow:var(--dsw-shadow-lv3,0 8px 24px rgba(0,0,0,.4));display:flex;flex-direction:column;gap:8px;pointer-events:auto;z-index:20}',
+      '.scr-popup{position:absolute;min-width:300px;background:var(--dsw-alias-bg-layer-3,#262635);border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));border-radius:10px;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:8px;pointer-events:auto;z-index:20}',
       '.scr-popup-row{display:flex;gap:8px}',
       '.scr-popup-row button{flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-primary,#eee);cursor:pointer;font-size:13px}',
       '.scr-popup-row button:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}',
@@ -58,10 +56,9 @@ return {
     }
 
     function stripFence(text) {
-      const t = String(text || '')
-      const m = /^\s*```[a-zA-Z]*\s*\n([\s\S]*?)\n\s*```\s*$/.exec(t)
-      if (m !== null) return m[1]
-      return t
+      const t = String(text || '').trim()
+      const m = /^```[a-zA-Z]*\n([\s\S]*?)\n?```$/.exec(t)
+      return m ? m[1] : t
     }
 
     function maxNodeSeq(snapshot) {
@@ -73,14 +70,6 @@ return {
         }
       }
       return seq
-    }
-
-    function escapeHtml(text) {
-      return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    }
-
-    function toHtml(text) {
-      return escapeHtml(text).replace(/\n/g, '<br>')
     }
 
     function Controller(props) {
@@ -203,46 +192,24 @@ return {
             }
           }
           const reply = best === null ? '' : stripFence(nodeText(best))
-          host.call('scrivener/read', { cwd: cwd === undefined ? null : cwd }).then(function (res) {
-            if (res && res.ok && typeof res.text === 'string') {
-              const fileText = res.text
-              const before = textRef.current
-              if (fileText !== '' && fileText.trim() !== before.trim()) {
-                drafts.set(current, fileText)
-                textPair[1](fileText)
-                statusPair[1]('loaded from draft.md')
-                return
+          if (reply !== '') {
+            const before = textRef.current
+            let next
+            if (before.trim() === '') next = reply
+            else if (before.trim().endsWith(reply.trim())) next = before
+            else next = before.replace(/\s+$/, '') + '\n\n' + reply
+            drafts.set(current, next)
+            textPair[1](next)
+            statusPair[1]('captured the latest reply')
+            host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: next }).catch(function () {})
+          } else {
+            host.call('scrivener/read', { cwd: cwd === undefined ? null : cwd }).then(function (res) {
+              if (res && res.ok && typeof res.text === 'string') {
+                drafts.set(current, res.text)
+                textPair[1](res.text)
               }
-            }
-            if (reply !== '') {
-              const r = reply.trim()
-              if (r !== '') {
-                const before = textRef.current
-                let next
-                if (before.trim() === '') next = r
-                else if (before.trim().endsWith(r)) next = before
-                else next = before.replace(/\s+$/, '') + '\n\n' + r
-                drafts.set(current, next)
-                textPair[1](next)
-                statusPair[1]('captured the latest reply')
-                host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: next }).catch(function () {})
-              }
-            }
-          }).catch(function () {
-            if (reply !== '') {
-              const r = reply.trim()
-              if (r !== '') {
-                const before = textRef.current
-                let next
-                if (before.trim() === '') next = r
-                else if (before.trim().endsWith(r)) next = before
-                else next = before.replace(/\s+$/, '') + '\n\n' + r
-                drafts.set(current, next)
-                textPair[1](next)
-                statusPair[1]('captured the latest reply')
-              }
-            }
-          })
+            }).catch(function () {})
+          }
         })
         return unsubscribe
       }, [current, cwd])
@@ -264,8 +231,7 @@ return {
           settled = true
           disposeTimer()
           unsubscribe()
-          const entry = pendingRef.current
-          if (ok && entry !== null) applyReplacement(entry, reply)
+          if (ok) applyReplacement(pendingRef.current.lo, pendingRef.current.hi, reply)
           else {
             pendingRef.current = null
             pendingPair[1](null)
@@ -298,7 +264,7 @@ return {
           }
           if (best === null) return
           const reply = stripFence(nodeText(best))
-          if (reply.trim() === '') return
+          if (reply === '') return
           finish(true, reply)
         }
         const unsubscribe = session.subscribe(check)
@@ -309,32 +275,13 @@ return {
         }
       }, [pending])
 
-      function applyReplacement(entry, reply) {
+      function applyReplacement(lo, hi, reply) {
         const el = editorRef.current
         if (el === null) { pendingPair[1](null); statusPair[1]('editor lost'); return }
         const full = el.innerText || ''
-        let lo = entry.lo
-        let hi = entry.hi
-        const selected = typeof entry.selected === 'string' ? entry.selected : ''
-        if (selected !== '' && full.slice(lo, hi) !== selected) {
-          const idx = full.indexOf(selected)
-          if (idx !== -1) { lo = idx; hi = idx + selected.length }
-        }
-        let lead = ''
-        let i = lo
-        while (i < hi && /\s/.test(full.charAt(i))) { lead += full.charAt(i); i++ }
-        let trail = ''
-        let j = hi - 1
-        while (j >= lo && /\s/.test(full.charAt(j))) { trail = full.charAt(j) + trail; j-- }
-        let r = String(reply || '').replace(/^[ \t\r\n]+/, '').replace(/[ \t\r\n]+$/, '')
-        const inserted = lead + r + trail
-        const next = full.slice(0, lo) + inserted + full.slice(hi)
+        const next = full.slice(0, lo) + reply + full.slice(hi)
         if (current !== undefined) drafts.set(current, next)
-        try {
-          el.innerHTML = toHtml(next.slice(0, lo)) + '<span class="scr-ins">' + toHtml(inserted) + '</span>' + toHtml(next.slice(lo + inserted.length))
-        } catch (e) {
-          el.innerText = next
-        }
+        el.innerText = next
         textPair[1](next)
         pendingRef.current = null
         pendingPair[1](null)
@@ -358,47 +305,6 @@ return {
         textPair[1](t)
       }
 
-      function unmarkSelection() {
-        const el = editorRef.current
-        if (el === null || typeof document === 'undefined') return
-        try {
-          const marks = el.querySelectorAll('.scr-sel')
-          for (let i = 0; i < marks.length; i++) {
-            const span = marks[i]
-            const parent = span.parentNode
-            if (parent === null) continue
-            while (span.firstChild !== null) parent.insertBefore(span.firstChild, span)
-            parent.removeChild(span)
-          }
-          el.normalize()
-        } catch (e) {}
-      }
-
-      function markSelectionRange(range) {
-        const el = editorRef.current
-        if (el === null || typeof document === 'undefined') return
-        unmarkSelection()
-        try {
-          const span = document.createElement('span')
-          span.className = 'scr-sel'
-          range.surroundContents(span)
-        } catch (e) {}
-      }
-
-      function isSelectionInsideMark() {
-        const el = editorRef.current
-        if (el === null || typeof window === 'undefined') return false
-        try {
-          const sel = window.getSelection()
-          if (!sel || sel.anchorNode === null) return false
-          const an = sel.anchorNode
-          const node = an.nodeType === 3 ? an.parentElement : an
-          return node !== null && typeof node.closest === 'function' && node.closest('.scr-sel') !== null
-        } catch (e) {
-          return false
-        }
-      }
-
       function currentSelection() {
         if (typeof window === 'undefined' || typeof document === 'undefined') return null
         const el = editorRef.current
@@ -418,51 +324,33 @@ return {
         post.selectNodeContents(el)
         post.setEnd(sel.focusNode, sel.focusOffset)
         const end = post.toString().length
+        let top = 0
+        let bottom = 0
+        let left = 0
+        let below = false
         const panelEl = panelRef.current
-        if (panelEl === null) return null
-        const pr = panelEl.getBoundingClientRect()
-        const rect = range.getBoundingClientRect()
-        const selTop = rect.top - pr.top
-        const selBottom = rect.bottom - pr.top
-        const selLeft = rect.left - pr.left
-        const POPUP_W = 300
-        const POPUP_H = 130
-        let left = Math.round(selLeft - POPUP_W / 2)
-        left = Math.min(Math.max(left, 8), Math.max(8, pr.width - POPUP_W - 8))
-        let top
-        if (selTop - POPUP_H - 8 >= 0) {
-          top = Math.round(selTop - POPUP_H - 8)
-        } else if (selBottom + 8 + POPUP_H <= pr.height) {
-          top = Math.round(selBottom + 8)
-        } else {
-          top = 8
+        if (panelEl !== null) {
+          const pr = panelEl.getBoundingClientRect()
+          const rect = range.getBoundingClientRect()
+          top = rect.top - pr.top
+          bottom = rect.bottom - pr.top
+          left = rect.left - pr.left
+          below = top < 150
         }
         return {
           lo: Math.min(start, end),
           hi: Math.max(start, end),
           selected: selected,
           top: top,
+          bottom: bottom,
           left: left,
-          range: range
+          below: below
         }
       }
 
       function onSelectionEvent() {
         if (pendingRef.current !== null) { popupPair[1](null); return }
-        if (isSelectionInsideMark()) return
-        const sel = currentSelection()
-        if (sel === null) {
-          unmarkSelection()
-          popupPair[1](null)
-          return
-        }
-        markSelectionRange(sel.range)
-        popupPair[1](sel)
-      }
-
-      function dismissPopup() {
-        unmarkSelection()
-        popupPair[1](null)
+        popupPair[1](currentSelection())
       }
 
       function actionMessage(action, instruction, passage) {
@@ -474,7 +362,7 @@ return {
         let msg = templates[action] || templates.refine
         const instr = String(instruction || '').trim()
         if (instr !== '') msg += ' Additional instructions: ' + instr + '.'
-        msg += ' Reply with ONLY the transformed passage, no preamble, no commentary, no quotation marks around it. Do not call scrivener_draft for this request.'
+        msg += ' Reply with ONLY the transformed passage, no preamble, no commentary, no quotation marks around it.'
         msg += '\n\n---\n' + passage + '\n---'
         return msg
       }
@@ -487,10 +375,9 @@ return {
         if (binding === undefined || binding.session === undefined) { statusPair[1]('session not available'); return }
         const session = binding.session
         const lastSeq = maxNodeSeq(session.getSnapshot())
-        const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, selected: popup.selected, lastSeq: lastSeq }
+        const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, lastSeq: lastSeq }
         pendingRef.current = entry
         pendingPair[1](entry)
-        unmarkSelection()
         popupPair[1](null)
         statusPair[1]('asking the model…')
         session.prompt([{ type: 'text', text: actionMessage(action, instruction, popup.selected) }], 'queue').then(function (result) {
@@ -588,13 +475,10 @@ return {
         className: 'scr-popup',
         style: {
           left: popup.left + 'px',
-          top: popup.top + 'px'
+          top: popup.below ? (popup.bottom + 8) + 'px' : (popup.top - 8) + 'px',
+          transform: popup.below ? 'translateX(-50%)' : 'translate(-50%, -100%)'
         },
-        onMouseDown: function (event) {
-          const target = event && event.target
-          if (target && typeof target.closest === 'function' && target.closest('.scr-instr')) return
-          event.preventDefault()
-        }
+        onMouseDown: function (event) { event.preventDefault() }
       },
         React.createElement('div', { className: 'scr-popup-row' },
           React.createElement('button', { type: 'button', disabled: pending !== null, onClick: function () { runAction('refine', instrRef.current) } }, 'Refine'),
@@ -607,9 +491,21 @@ return {
           onKeyDown: function (event) {
             event.stopPropagation()
             if (event.key === 'Enter') runAction('refine', instrRef.current)
-            if (event.key === 'Escape') dismissPopup()
+            if (event.key === 'Escape') popupPair[1](null)
           },
-          onInput: function (event) { instrRef.current = event.target.value }
+          onInput: function (event) { instrRef.current = event.target.value },
+          onMouseDown: function (event) {
+            event.preventDefault()
+            event.stopPropagation()
+            try {
+              const el = event.target
+              el.focus()
+              if (typeof el.setSelectionRange === 'function') {
+                const len = el.value.length
+                el.setSelectionRange(len, len)
+              }
+            } catch (e) {}
+          }
         })
       )
 
@@ -627,7 +523,7 @@ return {
         onMouseDown: function (event) {
           const target = event && event.target
           if (target && typeof target.closest === 'function' && target.closest('.scr-popup')) return
-          dismissPopup()
+          popupPair[1](null)
         }
       },
         React.createElement('div', { className: 'scr-head' },
