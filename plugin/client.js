@@ -270,6 +270,20 @@ return {
       }, [current])
 
       React.useEffect(function () {
+        return function () {
+          const el = editorRef.current
+          const ctxNow = scrollContextRef.current
+          if (el === null || ctxNow.session === undefined) return
+          let mem = scrollMemory.get(ctxNow.session)
+          if (mem === undefined) {
+            mem = { story: 0, image: 0, video: 0 }
+            scrollMemory.set(ctxNow.session, mem)
+          }
+          mem[ctxNow.tab] = el.scrollTop
+        }
+      }, [])
+
+      React.useEffect(function () {
         if (current === undefined) return
         const key = current + '|' + tab
         if (dirtyTabs.has(key)) return
@@ -571,6 +585,17 @@ return {
         statusPair[1]('done')
       }
 
+      function onEditorScroll() {
+        const el = editorRef.current
+        if (el === null || current === undefined) return
+        let mem = scrollMemory.get(current)
+        if (mem === undefined) {
+          mem = { story: 0, image: 0, video: 0 }
+          scrollMemory.set(current, mem)
+        }
+        mem[tab] = el.scrollTop
+      }
+
       function onInput() {
         const el = editorRef.current
         if (el === null) return
@@ -841,6 +866,7 @@ return {
         suppressContentEditableWarning: true,
         spellCheck: false,
         onInput: onInput,
+        onScroll: onEditorScroll,
         onSelect: onSelectionEvent,
         onMouseUp: onSelectionEvent,
         onKeyUp: onSelectionEvent,
