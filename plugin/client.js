@@ -52,6 +52,18 @@ return {
 
     const drafts = new Map()
     const dirtyTabs = new Set()
+    const insertRanges = new Map()
+    const selectionMemory = new Map()
+
+    function rangesFor(sessionId, tabKey) {
+      if (sessionId === undefined) return []
+      let obj = insertRanges.get(sessionId)
+      if (obj === undefined) {
+        obj = { story: [], image: [], video: [] }
+        insertRanges.set(sessionId, obj)
+      }
+      return obj[tabKey]
+    }
 
     function nodeText(node) {
       if (!node || !Array.isArray(node.blocks)) return ''
@@ -81,18 +93,80 @@ return {
       return seq
     }
 
-    function escapeHtml(text) {
-      return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    }
-
-    function toHtml(text) {
-      return escapeHtml(text).replace(/\n/g, '<br>')
-    }
-
     function fileForTab(t) {
       if (t === 'image') return 'images.md'
       if (t === 'video') return 'videos.md'
       return 'draft.md'
+    }
+
+    function renderEditor(el, textValue, sessionId, tabKey) {
+      if (el === null || typeof document === 'undefined') return
+      if (el.innerText === textValue) return
+      el.textContent = ''
+      const ranges = rangesFor(sessionId, tabKey).slice().sort(function (a, b) { return a.lo - b.lo })
+      if (ranges.length === 0) {
+        el.textContent = textValue
+        return
+      }
+      let pos = 0
+      for (let k = 0; k < ranges.length; k++) {
+        const r = ranges[k]
+        if (r.hi <= r.lo || r.lo < pos) continue
+        if (r.lo > textValue.length) break
+        const hi = Math.min(r.hi, textValue.length)
+        if (r.lo > pos) el.appendChild(document.createTextNode(textValue.slice(pos, r.lo)))
+        const span = document.createElement('span')
+        span.className = 'scr-ins'
+        span.appendChild(document.createTextNode(textValue.slice(r.lo, hi)))
+        el.appendChild(span)
+        pos = hi
+      }
+      if (pos < textValue.length) el.appendChild(document.createTextNode(textValue.slice(pos)))
+    }
+
+    function rangeFromOffsets(el, lo, hi) {
+      try {
+        const nodes = []
+        ;(function collect(node) {
+          if (node.nodeType === 3) { nodes.push(node); return }
+          for (let i = 0; i < node.childNodes.length; i++) collect(node.childNodes[i])
+        })(el)
+        let pos = 0
+        let startNode = null
+        let startOff = 0
+        let endNode = null
+        let endOff = 0
+        for (let i = 0; i < nodes.length; i++) {
+          const len = nodes[i].data.length
+          if (startNode === null && pos + len >= lo) { startNode = nodes[i]; startOff = lo - pos }
+          if (pos + len >= hi) { endNode = nodes[i]; endOff = hi - pos; break }
+          pos += len
+        }
+        if (startNode === null || endNode === null) return null
+        const range = document.createRange()
+        range.setStart(startNode, startOff)
+        range.setEnd(endNode, endOff)
+        return range
+      } catch (e) {
+        return null
+      }
+    }
+
+    function placePopup(range, panelEl) {
+      const pr = panelEl.getBoundingClientRect()
+      const rect = range.getBoundingClientRect()
+      const selTop = rect.top - pr.top
+      const selBottom = rect.bottom - pr.top
+      const selLeft = rect.left - pr.left
+      const POPUP_W = 300
+      const POPUP_H = 160
+      let left = Math.round(selLeft - POPUP_W / 2)
+      left = Math.min(Math.max(left, 8), Math.max(8, pr.width - POPUP_W - 8))
+      let top
+      if (selTop - POPUP_H - 8 >= 0) top = Math.round(selTop - POPUP_H - 8)
+      else if (selBottom + 8 + POPUP_H <= pr.height) top = Math.round(selBottom + 8)
+      else top = 8
+      return { top: top, left: left }
     }
 
     function Controller(props) {
@@ -219,8 +293,34 @@ return {
       React.useEffect(function () {
         const el = editorRef.current
         if (el === null) return
-        if (el.innerText !== text) el.innerText = text
-      }, [text])
+        if (el.innerText !== text) renderEditor(el, text, current, tab)
+      }, [text, current, tab])
+
+      React.useEffect(function () {
+        const el = editorRef.current
+        if (el === null || typeof document === 'undefined' || current === undefined) return
+        const mem = selectionMemory.get(current)
+        if (mem === undefined || mem.tab !== tab) {
+          popupPair[1](null)
+          return
+        }
+        const full = texts[tab] || ''
+        let lo = mem.lo
+        let hi = mem.hi
+        if (full.slice(lo, hi) !== mem.selected) {
+          const idx = full.indexOf(mem.selected)
+          if (idx === -1) { popupPair[1](null); return }
+          lo = idx
+          hi = idx + mem.selected.length
+        }
+        const range = rangeFromOffsets(el, lo, hi)
+        if (range === null) { popupPair[1](null); return }
+        markSelectionRange(range)
+        const panelEl = panelRef.current
+        if (panelEl === null) { popupPair[1](null); return }
+        const pos = placePopup(range, panelEl)
+        popupPair[1]({ lo: lo, hi: hi, selected: mem.selected, top: pos.top, left: pos.left, range: range })
+      }, [current, tab, text])
 
       React.useEffect(function () {
         if (current === undefined) return
@@ -419,7 +519,6 @@ return {
 
       function applyReplacement(entry, reply) {
         const t = entry.tab || 'story'
-        const el = editorRef.current
         const full = textsRef.current[t] || ''
         let lo = entry.lo
         let hi = entry.hi
@@ -438,26 +537,22 @@ return {
         const inserted = lead + r + trail
         const next = full.slice(0, lo) + inserted + full.slice(hi)
         setText(t, next, current)
-        if (current !== undefined) dirtyTabs.add(current + '|' + t)
-        if (tab === t && el !== null) {
-          try {
-            el.innerHTML = toHtml(next.slice(0, lo)) + '<span class="scr-ins">' + toHtml(inserted) + '</span>' + toHtml(next.slice(lo + inserted.length))
-          } catch (e) {
-            el.innerText = next
+        if (current !== undefined) {
+          dirtyTabs.add(current + '|' + t)
+          const rs = rangesFor(current, t)
+          const delta = inserted.length - (hi - lo)
+          for (let k = 0; k < rs.length; k++) {
+            const range = rs[k]
+            if (range.lo >= hi) { range.lo += delta; range.hi += delta }
+            else if (range.hi > lo) { range.lo = -1; range.hi = -1 }
           }
+          const kept = rs.filter(function (range) { return range.hi > range.lo && range.lo >= 0 })
+          kept.push({ lo: lo, hi: lo + inserted.length })
+          insertRanges.get(current)[t] = kept
         }
         pendingRef.current = null
         pendingPair[1](null)
         statusPair[1]('done')
-        try {
-          if (typeof window !== 'undefined' && typeof document !== 'undefined' && el !== null) {
-            const range = document.createRange()
-            range.selectNodeContents(el)
-            range.collapse(false)
-            const sel = window.getSelection()
-            if (sel) { sel.removeAllRanges(); sel.addRange(range) }
-          }
-        } catch (e) {}
       }
 
       function onInput() {
@@ -472,6 +567,8 @@ return {
           if (!drafts.has(current)) drafts.set(current, { story: '', image: '', video: '' })
           drafts.get(current)[tab] = t
           dirtyTabs.add(current + '|' + tab)
+          const obj = insertRanges.get(current)
+          if (obj !== undefined) obj[tab] = []
         }
       }
 
@@ -552,29 +649,13 @@ return {
         const end = post.toString().length
         const panelEl = panelRef.current
         if (panelEl === null) return null
-        const pr = panelEl.getBoundingClientRect()
-        const rect = range.getBoundingClientRect()
-        const selTop = rect.top - pr.top
-        const selBottom = rect.bottom - pr.top
-        const selLeft = rect.left - pr.left
-        const POPUP_W = 300
-        const POPUP_H = 160
-        let left = Math.round(selLeft - POPUP_W / 2)
-        left = Math.min(Math.max(left, 8), Math.max(8, pr.width - POPUP_W - 8))
-        let top
-        if (selTop - POPUP_H - 8 >= 0) {
-          top = Math.round(selTop - POPUP_H - 8)
-        } else if (selBottom + 8 + POPUP_H <= pr.height) {
-          top = Math.round(selBottom + 8)
-        } else {
-          top = 8
-        }
+        const pos = placePopup(range, panelEl)
         return {
           lo: Math.min(start, end),
           hi: Math.max(start, end),
           selected: selected,
-          top: top,
-          left: left,
+          top: pos.top,
+          left: pos.left,
           range: range
         }
       }
@@ -586,19 +667,21 @@ return {
         if (sel === null) {
           unmarkSelection()
           popupPair[1](null)
+          if (current !== undefined) selectionMemory.delete(current)
           return
         }
         markSelectionRange(sel.range)
         popupPair[1](sel)
+        if (current !== undefined) selectionMemory.set(current, { tab: tab, lo: sel.lo, hi: sel.hi, selected: sel.selected })
       }
 
       function dismissPopup() {
         unmarkSelection()
         popupPair[1](null)
+        if (current !== undefined) selectionMemory.delete(current)
       }
 
       function selectTab(t) {
-        dismissPopup()
         confirmPair[1](false)
         tabPair[1](t)
       }
@@ -633,6 +716,7 @@ return {
         pendingPair[1](entry)
         unmarkSelection()
         popupPair[1](null)
+        if (current !== undefined) selectionMemory.delete(current)
         statusPair[1]('asking the model…')
         session.prompt([{ type: 'text', text: actionMessage(action, instruction, popup.selected) }], 'queue').then(function (result) {
           if (!(result && result.ok)) {
@@ -663,6 +747,8 @@ return {
       function clearDraft() {
         confirmPair[1](false)
         unmarkSelection()
+        popupPair[1](null)
+        if (current !== undefined) selectionMemory.delete(current)
         const t = tab
         setText(t, '', current)
         if (current !== undefined) dirtyTabs.add(current + '|' + t)
@@ -798,7 +884,7 @@ return {
         React.createElement('button', { className: 'scr-btn', onClick: reloadDraft }, 'Reload'),
         React.createElement('button', { className: 'scr-btn', onClick: copyDraft }, 'Copy'),
         React.createElement('button', { className: 'scr-btn', onClick: saveDraft }, 'Save'),
-        React.createElement('button', { className: 'scr-btn', disabled: pending !== null, onClick: function () { dismissPopup(); confirmPair[1](true) } }, 'Clear'),
+        React.createElement('button', { className: 'scr-btn', disabled: pending !== null, onClick: function () { confirmPair[1](true) } }, 'Clear'),
         React.createElement('span', { className: 'scr-status' }, status)
       )
 
@@ -807,8 +893,7 @@ return {
         className: 'scr-pane',
         onMouseDown: function (event) {
           const target = event && event.target
-          if (target && typeof target.closest === 'function' && (target.closest('.scr-popup') || target.closest('.scr-confirm') || target.closest('.scr-tab'))) return
-          dismissPopup()
+          if (target && typeof target.closest === 'function' && target.closest('.scr-confirm')) return
           confirmPair[1](false)
         }
       },
