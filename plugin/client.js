@@ -265,11 +265,18 @@ return {
           disposeTimer()
           unsubscribe()
           const entry = pendingRef.current
-          if (ok && entry !== null) applyReplacement(entry, reply)
-          else {
+          if (!ok || entry === null) {
             pendingRef.current = null
             pendingPair[1](null)
+            return
           }
+          if (entry.chatOnly) {
+            pendingRef.current = null
+            pendingPair[1](null)
+            statusPair[1]('sent to chat')
+            return
+          }
+          applyReplacement(entry, reply)
         }
         const disposeTimer = (timer !== undefined && typeof timer.timeout === 'function')
           ? timer.timeout(function () {
@@ -426,7 +433,7 @@ return {
         const selBottom = rect.bottom - pr.top
         const selLeft = rect.left - pr.left
         const POPUP_W = 300
-        const POPUP_H = 130
+        const POPUP_H = 160
         let left = Math.round(selLeft - POPUP_W / 2)
         left = Math.min(Math.max(left, 8), Math.max(8, pr.width - POPUP_W - 8))
         let top
@@ -469,12 +476,14 @@ return {
         const templates = {
           refine: 'Refine the following passage from my manuscript: improve the prose while keeping the meaning, tone, and approximate length.',
           rewrite: 'Rewrite the following passage from my manuscript in a fresh style: keep the core meaning but vary the phrasing and sentence rhythm.',
-          expand: 'Expand the following passage from my manuscript: add more detail, deepen the description, and significantly increase its length.'
+          expand: 'Expand the following passage from my manuscript: add more detail, deepen the description, and significantly increase its length.',
+          image: 'Generate a detailed Krea2 t2i (text-to-image) prompt from the following scene in my story. Describe the subject, appearance, setting, art style, lighting, color palette, camera angle, and mood. Output ONLY the prompt itself.',
+          video: 'Generate a detailed H3 (video generation) prompt from the following scene in my story. Describe the subject, action, motion, camera movement, pacing, and shot sequence. Output ONLY the prompt itself.'
         }
         let msg = templates[action] || templates.refine
         const instr = String(instruction || '').trim()
         if (instr !== '') msg += ' Additional instructions: ' + instr + '.'
-        msg += ' Reply with ONLY the transformed passage, no preamble, no commentary, no quotation marks around it. Do not call scrivener_draft for this request.'
+        msg += ' Reply with ONLY the prompt — no labels, no preamble, no commentary, no quotation marks around it. Do not call scrivener_draft for this request.'
         msg += '\n\n---\n' + passage + '\n---'
         return msg
       }
@@ -487,7 +496,8 @@ return {
         if (binding === undefined || binding.session === undefined) { statusPair[1]('session not available'); return }
         const session = binding.session
         const lastSeq = maxNodeSeq(session.getSnapshot())
-        const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, selected: popup.selected, lastSeq: lastSeq }
+        const chatOnly = action === 'image' || action === 'video'
+        const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, selected: popup.selected, lastSeq: lastSeq, chatOnly: chatOnly }
         pendingRef.current = entry
         pendingPair[1](entry)
         unmarkSelection()
@@ -600,6 +610,10 @@ return {
           React.createElement('button', { type: 'button', disabled: pending !== null, onClick: function () { runAction('refine', instrRef.current) } }, 'Refine'),
           React.createElement('button', { type: 'button', disabled: pending !== null, onClick: function () { runAction('rewrite', instrRef.current) } }, 'Rewrite'),
           React.createElement('button', { type: 'button', disabled: pending !== null, onClick: function () { runAction('expand', instrRef.current) } }, 'Expand')
+        ),
+        React.createElement('div', { className: 'scr-popup-row' },
+          React.createElement('button', { type: 'button', disabled: pending !== null, onClick: function () { runAction('image', instrRef.current) } }, 'Image Prompt'),
+          React.createElement('button', { type: 'button', disabled: pending !== null, onClick: function () { runAction('video', instrRef.current) } }, 'Video Prompt')
         ),
         React.createElement('input', {
           className: 'scr-instr',

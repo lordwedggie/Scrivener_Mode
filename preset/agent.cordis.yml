@@ -46,6 +46,11 @@
       preamble, no commentary, no quotation marks around it, and do not call
       scrivener_draft for that request.
 
+      Another exception: when the user selects text and asks you to generate an
+      image prompt (Krea2 t2i style) or a video prompt (H3 style) from it, reply
+      in chat with ONLY the prompt itself — no labels, no preamble, no
+      commentary — and do not call scrivener_draft for that request.
+
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
   config:
