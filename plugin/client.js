@@ -525,13 +525,13 @@ return {
           refine: 'Refine the following passage from my manuscript: improve the prose while keeping the meaning, tone, and approximate length.',
           rewrite: 'Rewrite the following passage from my manuscript in a fresh style: keep the core meaning but vary the phrasing and sentence rhythm.',
           expand: 'Expand the following passage from my manuscript: add more detail, deepen the description, and significantly increase its length.',
-          image: 'Generate a detailed Krea2 t2i (text-to-image) prompt from the following scene in my story. Describe the subject, appearance, setting, art style, lighting, color palette, camera angle, and mood. Output ONLY the prompt itself.',
-          video: 'Generate a detailed H3 (video generation) prompt from the following scene in my story. Describe the subject, action, motion, camera movement, pacing, and shot sequence. Output ONLY the prompt itself.'
+          image: 'Generate a detailed Krea2 t2i (text-to-image) prompt from the following scene in my story. Describe the subject, appearance, setting, art style, lighting, color palette, camera angle, and mood. Output ONLY the prompt itself, written as flowing natural-language prose. IMPORTANT: do NOT output JSON, code, or parameter lists — never include width, height, resolution, or any setting numbers.',
+          video: 'Generate a detailed H3 (video generation) prompt from the following scene in my story. Describe the subject, action, motion, camera movement, pacing, and shot sequence. Output ONLY the prompt itself, written as flowing natural-language prose. IMPORTANT: do NOT output JSON, code, or parameter lists — never include resolution, fps, duration, or any setting numbers.'
         }
         let msg = templates[action] || templates.refine
         const instr = String(instruction || '').trim()
         if (instr !== '') msg += ' Additional instructions: ' + instr + '.'
-        msg += ' Reply with ONLY the prompt — no labels, no preamble, no commentary, no quotation marks around it. Do not call scrivener_draft for this request.'
+        msg += ' Reply with ONLY the prompt — no labels, no preamble, no commentary, no quotation marks around it. Write plain prose only, never JSON or parameter lists. Do not call scrivener_draft for this request.'
         msg += '\n\n---\n' + passage + '\n---'
         return msg
       }
