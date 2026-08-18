@@ -141,6 +141,7 @@ return {
       const panelRef = React.useState({ current: null })[0]
       const pendingRef = React.useState({ current: null })[0]
       const instrRef = React.useState({ current: '' })[0]
+      const savedRangeRef = React.useState({ current: null })[0]
       const textPair = React.useState('')
       const text = textPair[0]
       const textRef = React.useState({ current: '' })[0]
@@ -488,6 +489,18 @@ return {
         try { if (document.execCommand) document.execCommand('insertText', false, data) } catch (e) {}
       }
 
+      function restoreSavedRange() {
+        const saved = savedRangeRef.current
+        if (saved === null) return
+        try {
+          if (typeof window === 'undefined') return
+          const sel = window.getSelection()
+          if (!sel) return
+          sel.removeAllRanges()
+          sel.addRange(saved)
+        } catch (e) {}
+      }
+
       const words = (text.trim() === '') ? 0 : text.trim().split(/\s+/).length
 
       const editorEl = React.createElement('div', {
@@ -530,13 +543,22 @@ return {
             event.preventDefault()
             event.stopPropagation()
             try {
+              if (typeof window !== 'undefined') {
+                const sel = window.getSelection()
+                if (sel && sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0).cloneRange()
+              }
               const el = event.target
               el.focus()
               if (typeof el.setSelectionRange === 'function') {
                 const len = el.value.length
                 el.setSelectionRange(len, len)
               }
+              restoreSavedRange()
             } catch (e) {}
+          },
+          onKeyUp: function (event) {
+            if (event.key === 'Escape') { popupPair[1](null); return }
+            restoreSavedRange()
           }
         })
       )
