@@ -1,8 +1,12 @@
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
+import z from '@deepseek-ai/schemastery'
 
 export const name = 'scr-pane-host'
 export const inject = ['webServer']
+
+/** Durable settings namespace schema: the pane's auto-store preference. */
+const SCR_SETTINGS_SCHEMA = z.object({ autoStore: z.boolean().default(true) })
 
 function dbg(message) {
   try {
@@ -22,6 +26,10 @@ export function apply(ctx) {
   const fs = ctx.get('fs')
   const sessions = ctx.get('sessions')
   const policyService = ctx.get('sandboxPolicy')
+
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.register('scr-pane', SCR_SETTINGS_SCHEMA)
+  })
 
   function pickFile(file) {
     if (file === 'images.md') return 'images.md'
