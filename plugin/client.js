@@ -176,14 +176,15 @@ return {
         const row = s.byId[s.current]
         return row ? row.agentPreset : undefined
       })
+      const sessionId = props.useSessions(function (s) { return s.current })
       React.useEffect(function () {
         if (preset !== 'scrivener') return
         setPaneOpen(true)
-        let disposeRegistration = function () {}
+        const layout = ctx.get('layout')
         if (layout !== undefined) {
           try { layout.openDetails() } catch (e) {}
         }
-        disposeRegistration = slots.register({ name: 'details' }, ScrivenerPane)
+        const disposeRegistration = slots.register({ name: 'details', priority: -3 }, ScrivenerPane)
         return function () {
           disposeRegistration()
           if (layout !== undefined) {
@@ -191,6 +192,16 @@ return {
           }
         }
       }, [preset])
+      // The shipped shell closes the details column on session switch;
+      // re-open it on every session change while we are in Scrivener mode.
+      React.useEffect(function () {
+        if (preset !== 'scrivener') return
+        setPaneOpen(true)
+        const layout = ctx.get('layout')
+        if (layout !== undefined) {
+          try { layout.openDetails() } catch (e) {}
+        }
+      }, [preset, sessionId])
       return null
     }
 
@@ -310,7 +321,7 @@ return {
         const el = editorRef.current
         if (el === null) return
         const prev = scrollContextRef.current
-        if (prev.session !== undefined) {
+        if (prev.session !== undefined && el.innerText !== '') {
           let mem = scrollMemory.get(prev.session)
           if (mem === undefined) {
             mem = { story: 0, image: 0, video: 0 }
