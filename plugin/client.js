@@ -58,9 +58,10 @@ return {
     }
 
     function stripFence(text) {
-      const t = String(text || '').trim()
-      const m = /^```[a-zA-Z]*\n([\s\S]*?)\n?```$/.exec(t)
-      return m ? m[1] : t
+      const t = String(text || '')
+      const m = /^\s*```[a-zA-Z]*\s*\n([\s\S]*?)\n\s*```\s*$/.exec(t)
+      if (m !== null) return m[1]
+      return t
     }
 
     function maxNodeSeq(snapshot) {
@@ -214,26 +215,32 @@ return {
               }
             }
             if (reply !== '') {
-              const before = textRef.current
-              let next
-              if (before.trim() === '') next = reply
-              else if (before.trim().endsWith(reply.trim())) next = before
-              else next = before.replace(/\s+$/, '') + '\n\n' + reply
-              drafts.set(current, next)
-              textPair[1](next)
-              statusPair[1]('captured the latest reply')
-              host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: next }).catch(function () {})
+              const r = reply.trim()
+              if (r !== '') {
+                const before = textRef.current
+                let next
+                if (before.trim() === '') next = r
+                else if (before.trim().endsWith(r)) next = before
+                else next = before.replace(/\s+$/, '') + '\n\n' + r
+                drafts.set(current, next)
+                textPair[1](next)
+                statusPair[1]('captured the latest reply')
+                host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: next }).catch(function () {})
+              }
             }
           }).catch(function () {
             if (reply !== '') {
-              const before = textRef.current
-              let next
-              if (before.trim() === '') next = reply
-              else if (before.trim().endsWith(reply.trim())) next = before
-              else next = before.replace(/\s+$/, '') + '\n\n' + reply
-              drafts.set(current, next)
-              textPair[1](next)
-              statusPair[1]('captured the latest reply')
+              const r = reply.trim()
+              if (r !== '') {
+                const before = textRef.current
+                let next
+                if (before.trim() === '') next = r
+                else if (before.trim().endsWith(r)) next = before
+                else next = before.replace(/\s+$/, '') + '\n\n' + r
+                drafts.set(current, next)
+                textPair[1](next)
+                statusPair[1]('captured the latest reply')
+              }
             }
           })
         })
@@ -257,7 +264,8 @@ return {
           settled = true
           disposeTimer()
           unsubscribe()
-          if (ok) applyReplacement(pendingRef.current.lo, pendingRef.current.hi, reply)
+          const entry = pendingRef.current
+          if (ok && entry !== null) applyReplacement(entry, reply)
           else {
             pendingRef.current = null
             pendingPair[1](null)
@@ -290,7 +298,7 @@ return {
           }
           if (best === null) return
           const reply = stripFence(nodeText(best))
-          if (reply === '') return
+          if (reply.trim() === '') return
           finish(true, reply)
         }
         const unsubscribe = session.subscribe(check)
@@ -301,14 +309,29 @@ return {
         }
       }, [pending])
 
-      function applyReplacement(lo, hi, reply) {
+      function applyReplacement(entry, reply) {
         const el = editorRef.current
         if (el === null) { pendingPair[1](null); statusPair[1]('editor lost'); return }
         const full = el.innerText || ''
-        const next = full.slice(0, lo) + reply + full.slice(hi)
+        let lo = entry.lo
+        let hi = entry.hi
+        const selected = typeof entry.selected === 'string' ? entry.selected : ''
+        if (selected !== '' && full.slice(lo, hi) !== selected) {
+          const idx = full.indexOf(selected)
+          if (idx !== -1) { lo = idx; hi = idx + selected.length }
+        }
+        let lead = ''
+        let i = lo
+        while (i < hi && /\s/.test(full.charAt(i))) { lead += full.charAt(i); i++ }
+        let trail = ''
+        let j = hi - 1
+        while (j >= lo && /\s/.test(full.charAt(j))) { trail = full.charAt(j) + trail; j-- }
+        let r = String(reply || '').replace(/^[ \t\r\n]+/, '').replace(/[ \t\r\n]+$/, '')
+        const inserted = lead + r + trail
+        const next = full.slice(0, lo) + inserted + full.slice(hi)
         if (current !== undefined) drafts.set(current, next)
         try {
-          el.innerHTML = toHtml(next.slice(0, lo)) + '<span class="scr-ins">' + toHtml(reply) + '</span>' + toHtml(next.slice(lo + reply.length))
+          el.innerHTML = toHtml(next.slice(0, lo)) + '<span class="scr-ins">' + toHtml(inserted) + '</span>' + toHtml(next.slice(lo + inserted.length))
         } catch (e) {
           el.innerText = next
         }
@@ -464,7 +487,7 @@ return {
         if (binding === undefined || binding.session === undefined) { statusPair[1]('session not available'); return }
         const session = binding.session
         const lastSeq = maxNodeSeq(session.getSnapshot())
-        const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, lastSeq: lastSeq }
+        const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, selected: popup.selected, lastSeq: lastSeq }
         pendingRef.current = entry
         pendingPair[1](entry)
         unmarkSelection()
