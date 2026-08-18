@@ -5,12 +5,18 @@ return {
     const sessions = ctx.get('sessions')
     const policyService = ctx.get('sandboxPolicy')
 
+    function pickFile(a) {
+      if (a && a.file === 'images.md') return 'images.md'
+      if (a && a.file === 'videos.md') return 'videos.md'
+      return 'draft.md'
+    }
+
     harness.handle('scrivener/read', async (args) => {
       const a = args && typeof args === 'object' ? args : {}
       if (fs === undefined) return { ok: false, error: 'fs service unavailable' }
       try {
         const cwd = typeof a.cwd === 'string' ? a.cwd : undefined
-        const target = await fs.resolve('draft.md', cwd ? { cwd } : {})
+        const target = await fs.resolve(pickFile(a), cwd ? { cwd } : {})
         const info = await fs.stat(target)
         if (info === undefined) return { ok: true, text: '', missing: true }
         const text = await fs.readText(target)
@@ -26,7 +32,8 @@ return {
       try {
         const cwd = typeof a.cwd === 'string' && a.cwd !== '' ? a.cwd : undefined
         const text = typeof a.text === 'string' ? a.text : ''
-        const target = await fs.resolve('draft.md', cwd ? { cwd } : {})
+        const file = pickFile(a)
+        const target = await fs.resolve(file, cwd ? { cwd } : {})
         let policy
         if (policyService !== undefined && typeof policyService.resolve === 'function') {
           let session
@@ -40,7 +47,7 @@ return {
           }
         }
         await fs.writeText(target, text, undefined, undefined, policy)
-        return { ok: true, path: typeof fs.processPath === 'function' ? fs.processPath(target) : 'draft.md' }
+        return { ok: true, path: typeof fs.processPath === 'function' ? fs.processPath(target) : file }
       } catch (error) {
         return { ok: false, error: String((error && error.message) || error) }
       }

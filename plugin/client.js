@@ -12,6 +12,10 @@ return {
       '.scr-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08))}',
       '.scr-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#eee)}',
       '.scr-x{border:none;background:transparent;color:var(--dsw-alias-label-secondary,#bbb);cursor:pointer;font-size:16px;line-height:1;padding:4px}',
+      '.scr-tabs{display:flex;gap:2px;padding:6px 10px 0;border-bottom:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08))}',
+      '.scr-tab{flex:1;border:1px solid transparent;border-bottom:none;background:transparent;color:var(--dsw-alias-label-secondary,#bbb);border-radius:6px 6px 0 0;padding:6px 0;cursor:pointer;font-size:13px}',
+      '.scr-tab:hover{color:var(--dsw-alias-label-primary,#eee);background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}',
+      '.scr-tab-active{color:var(--dsw-alias-label-primary,#eee);background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.05));border-color:var(--dsw-alias-border-l2,rgba(255,255,255,.14))}',
       '.scr-editor{flex:1;overflow:auto;padding:16px;white-space:pre-wrap;line-height:1.7;outline:none;color:var(--dsw-alias-label-primary,#eee)}',
       '.scr-ins{color:var(--dsw-static-blue-450,#7db1ff)}',
       '.scr-sel{background:rgba(255,166,44,.28);border-radius:2px}',
@@ -50,7 +54,7 @@ return {
     }
 
     const drafts = new Map()
-    const dirtySessions = new Set()
+    const dirtyTabs = new Set()
 
     function nodeText(node) {
       if (!node || !Array.isArray(node.blocks)) return ''
@@ -86,6 +90,12 @@ return {
 
     function toHtml(text) {
       return escapeHtml(text).replace(/\n/g, '<br>')
+    }
+
+    function fileForTab(t) {
+      if (t === 'image') return 'images.md'
+      if (t === 'video') return 'videos.md'
+      return 'draft.md'
     }
 
     function Controller(props) {
@@ -148,9 +158,12 @@ return {
       const panelRef = React.useState({ current: null })[0]
       const pendingRef = React.useState({ current: null })[0]
       const instrRef = React.useState({ current: '' })[0]
-      const textPair = React.useState('')
-      const text = textPair[0]
-      const textRef = React.useState({ current: '' })[0]
+      const textsPair = React.useState({ story: '', image: '', video: '' })
+      const texts = textsPair[0]
+      const textsRef = React.useState({ current: texts })[0]
+      const tabPair = React.useState('story')
+      const tab = tabPair[0]
+      const text = texts[tab]
       const statusPair = React.useState('')
       const status = statusPair[0]
       const popupPair = React.useState(null)
@@ -161,42 +174,50 @@ return {
       const confirm = confirmPair[0]
 
       React.useEffect(function () { pendingRef.current = pending }, [pending])
-      React.useEffect(function () { textRef.current = text }, [text])
+      React.useEffect(function () { textsRef.current = texts }, [texts])
+
+      function setText(key, value, sessionId) {
+        const sid = sessionId === undefined ? current : sessionId
+        const next = Object.assign({}, textsRef.current)
+        next[key] = value
+        textsRef.current = next
+        textsPair[1](next)
+        if (sid !== undefined) {
+          if (!drafts.has(sid)) drafts.set(sid, { story: '', image: '', video: '' })
+          drafts.get(sid)[key] = value
+        }
+      }
 
       React.useEffect(function () {
         if (current === undefined) return
-        const cached = drafts.has(current)
-        const dirty = dirtySessions.has(current)
-        if (cached && dirty) { textPair[1](drafts.get(current)); return }
-        host.call('scrivener/read', { cwd: cwd === undefined ? null : cwd }).then(function (res) {
+        const c = drafts.has(current) ? drafts.get(current) : { story: '', image: '', video: '' }
+        const next = Object.assign({}, c)
+        textsRef.current = next
+        textsPair[1](next)
+      }, [current])
+
+      React.useEffect(function () {
+        if (current === undefined) return
+        const key = current + '|' + tab
+        if (dirtyTabs.has(key)) return
+        host.call('scrivener/read', { cwd: cwd === undefined ? null : cwd, file: fileForTab(tab) }).then(function (res) {
           if (res && res.ok && typeof res.text === 'string') {
-            const fileText = res.text
-            const cachedText = cached ? drafts.get(current) : ''
-            if (!cached || fileText.trim() !== cachedText.trim()) {
-              drafts.set(current, fileText)
-              textPair[1](fileText)
-              dirtySessions.delete(current)
-              statusPair[1]('loaded from draft.md')
-            } else {
-              textPair[1](cachedText)
+            const cachedText = textsRef.current[tab] || ''
+            if (cachedText === '' || res.text.trim() !== cachedText.trim()) {
+              setText(tab, res.text, current)
+              dirtyTabs.delete(key)
+              if (cachedText.trim() !== '' && res.text.trim() !== cachedText.trim()) statusPair[1]('reconciled ' + fileForTab(tab))
             }
           } else if (res && res.missing) {
-            if (!cached || !dirty) {
-              drafts.set(current, '')
-              textPair[1]('')
-              dirtySessions.delete(current)
-            } else {
-              textPair[1](drafts.get(current))
-            }
+            setText(tab, '', current)
+            dirtyTabs.delete(key)
           } else {
-            if (cached) textPair[1](drafts.get(current))
-            else statusPair[1]('load failed: ' + (res && res.error ? res.error : 'unknown'))
+            statusPair[1]('load failed: ' + (res && res.error ? res.error : 'unknown'))
           }
         }).catch(function (error) {
-          if (cached) textPair[1](drafts.get(current))
-          else statusPair[1]('load failed: ' + String((error && error.message) || error))
+          statusPair[1]('load failed: ' + String((error && error.message) || error))
         })
-      }, [current, cwd])
+      }, [current, cwd, tab])
 
       React.useEffect(function () {
         const el = editorRef.current
@@ -227,14 +248,13 @@ return {
             }
           }
           const reply = best === null ? '' : stripFence(nodeText(best))
-          host.call('scrivener/read', { cwd: cwd === undefined ? null : cwd }).then(function (res) {
+          host.call('scrivener/read', { cwd: cwd === undefined ? null : cwd, file: 'draft.md' }).then(function (res) {
             if (res && res.ok && typeof res.text === 'string') {
               const fileText = res.text
-              const before = textRef.current
+              const before = textsRef.current.story
               if (fileText !== '' && fileText.trim() !== before.trim()) {
-                drafts.set(current, fileText)
-                textPair[1](fileText)
-                dirtySessions.delete(current)
+                setText('story', fileText, current)
+                dirtyTabs.delete(current + '|story')
                 statusPair[1]('loaded from draft.md')
                 return
               }
@@ -242,16 +262,15 @@ return {
             if (reply !== '') {
               const r = reply.trim()
               if (r !== '') {
-                const before = textRef.current
+                const before = textsRef.current.story
                 let next
                 if (before.trim() === '') next = r
                 else if (before.trim().endsWith(r)) next = before
                 else next = before.replace(/\s+$/, '') + '\n\n' + r
-                drafts.set(current, next)
-                textPair[1](next)
+                setText('story', next, current)
                 statusPair[1]('captured the latest reply')
-                host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: next }).then(function (saveRes) {
-                  if (saveRes && saveRes.ok) dirtySessions.delete(current)
+                host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, file: 'draft.md', text: next }).then(function (saveRes) {
+                  if (saveRes && saveRes.ok) dirtyTabs.delete(current + '|story')
                 }).catch(function () {})
               }
             }
@@ -259,13 +278,12 @@ return {
             if (reply !== '') {
               const r = reply.trim()
               if (r !== '') {
-                const before = textRef.current
+                const before = textsRef.current.story
                 let next
                 if (before.trim() === '') next = r
                 else if (before.trim().endsWith(r)) next = before
                 else next = before.replace(/\s+$/, '') + '\n\n' + r
-                drafts.set(current, next)
-                textPair[1](next)
+                setText('story', next, current)
                 statusPair[1]('captured the latest reply')
               }
             }
@@ -298,17 +316,18 @@ return {
             return
           }
           if (entry.chatOnly) {
-            pendingRef.current = null
-            pendingPair[1](null)
             if (entry.action === 'video') {
               const lower = String(reply || '').toLowerCase()
               if (lower.indexOf('overall_soundscape') === -1 || lower.indexOf('non_diegetic_music') === -1) {
                 statusPair[1]('reply is missing audio sections — asking for a complete redo…')
+                entry.lastSeq = maxNodeSeq(session.getSnapshot())
+                pendingRef.current = entry
+                pendingPair[1](Object.assign({}, entry))
                 session.prompt([{ type: 'text', text: 'Your video prompt reply is incomplete: it must contain all three labeled sections — "integrated_multimodal_description:", "overall_soundscape:", and "non_diegetic_music:" — each fully developed. It must include every dialogue line from the scene verbatim and full audio detail. Output the complete three-part prompt again, from the beginning, nothing omitted, beginning with the exact text "integrated_multimodal_description:". Do not stop early.' }], 'queue').catch(function () {})
                 return
               }
             }
-            statusPair[1]('sent to chat')
+            storePrompt(entry, reply)
             return
           }
           applyReplacement(entry, reply)
@@ -351,10 +370,38 @@ return {
         }
       }, [pending])
 
+      function storePrompt(entry, reply) {
+        const key = entry.action === 'image' ? 'image' : 'video'
+        const file = key === 'image' ? 'images.md' : 'videos.md'
+        const firstLine = String(entry.selected || '').split('\n').map(function (s) { return s.trim() }).filter(Boolean)[0] || ''
+        const excerpt = firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine
+        const header = excerpt === '' ? '## Prompt' : '## ' + excerpt
+        const trimmed = String(reply || '').trim()
+        const before = (textsRef.current[key] || '').trimEnd()
+        const piece = before === '' ? header + '\n\n' + trimmed : before + '\n\n' + header + '\n\n' + trimmed
+        setText(key, piece, current)
+        if (current !== undefined) {
+          const dkey = current + '|' + key
+          dirtyTabs.add(dkey)
+          host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, file: file, text: piece }).then(function (res) {
+            if (res && res.ok) {
+              dirtyTabs.delete(dkey)
+              statusPair[1]('stored in ' + (key === 'image' ? 'Image' : 'Video') + ' tab · also in chat')
+            } else {
+              statusPair[1]('store failed: ' + (res && res.error ? res.error : 'unknown'))
+            }
+          }).catch(function (error) {
+            statusPair[1]('store failed: ' + String((error && error.message) || error))
+          })
+        }
+        pendingRef.current = null
+        pendingPair[1](null)
+      }
+
       function applyReplacement(entry, reply) {
+        const t = entry.tab || 'story'
         const el = editorRef.current
-        if (el === null) { pendingPair[1](null); statusPair[1]('editor lost'); return }
-        const full = el.innerText || ''
+        const full = textsRef.current[t] || ''
         let lo = entry.lo
         let hi = entry.hi
         const selected = typeof entry.selected === 'string' ? entry.selected : ''
@@ -371,21 +418,20 @@ return {
         let r = String(reply || '').replace(/^[ \t\r\n]+/, '').replace(/[ \t\r\n]+$/, '')
         const inserted = lead + r + trail
         const next = full.slice(0, lo) + inserted + full.slice(hi)
-        if (current !== undefined) {
-          drafts.set(current, next)
-          dirtySessions.add(current)
+        setText(t, next, current)
+        if (current !== undefined) dirtyTabs.add(current + '|' + t)
+        if (tab === t && el !== null) {
+          try {
+            el.innerHTML = toHtml(next.slice(0, lo)) + '<span class="scr-ins">' + toHtml(inserted) + '</span>' + toHtml(next.slice(lo + inserted.length))
+          } catch (e) {
+            el.innerText = next
+          }
         }
-        try {
-          el.innerHTML = toHtml(next.slice(0, lo)) + '<span class="scr-ins">' + toHtml(inserted) + '</span>' + toHtml(next.slice(lo + inserted.length))
-        } catch (e) {
-          el.innerText = next
-        }
-        textPair[1](next)
         pendingRef.current = null
         pendingPair[1](null)
         statusPair[1]('done')
         try {
-          if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+          if (typeof window !== 'undefined' && typeof document !== 'undefined' && el !== null) {
             const range = document.createRange()
             range.selectNodeContents(el)
             range.collapse(false)
@@ -399,11 +445,15 @@ return {
         const el = editorRef.current
         if (el === null) return
         const t = el.innerText || ''
+        const next = Object.assign({}, textsRef.current)
+        next[tab] = t
+        textsRef.current = next
+        textsPair[1](next)
         if (current !== undefined) {
-          drafts.set(current, t)
-          dirtySessions.add(current)
+          if (!drafts.has(current)) drafts.set(current, { story: '', image: '', video: '' })
+          drafts.get(current)[tab] = t
+          dirtyTabs.add(current + '|' + tab)
         }
-        textPair[1](t)
       }
 
       function unmarkSelection() {
@@ -528,6 +578,12 @@ return {
         popupPair[1](null)
       }
 
+      function selectTab(t) {
+        dismissPopup()
+        confirmPair[1](false)
+        tabPair[1](t)
+      }
+
       function actionMessage(action, instruction, passage) {
         const templates = {
           refine: 'Refine the following passage from my manuscript: improve the prose while keeping the meaning, tone, and approximate length.',
@@ -553,7 +609,7 @@ return {
         const session = binding.session
         const lastSeq = maxNodeSeq(session.getSnapshot())
         const chatOnly = action === 'image' || action === 'video'
-        const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, selected: popup.selected, lastSeq: lastSeq, chatOnly: chatOnly, action: action }
+        const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, selected: popup.selected, lastSeq: lastSeq, chatOnly: chatOnly, action: action, tab: tab }
         pendingRef.current = entry
         pendingPair[1](entry)
         unmarkSelection()
@@ -573,11 +629,12 @@ return {
       }
 
       function saveDraft() {
+        const t = tab
         statusPair[1]('saving…')
-        host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: text }).then(function (res) {
+        host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, file: fileForTab(t), text: texts[t] }).then(function (res) {
           if (res && res.ok) {
-            if (current !== undefined) dirtySessions.delete(current)
-            statusPair[1]('saved to ' + (res.path || 'draft.md'))
+            if (current !== undefined) dirtyTabs.delete(current + '|' + t)
+            statusPair[1]('saved to ' + (res.path || fileForTab(t)))
           } else statusPair[1]('save failed: ' + (res && res.error ? res.error : 'unknown'))
         }).catch(function (error) {
           statusPair[1]('save failed: ' + String((error && error.message) || error))
@@ -587,16 +644,14 @@ return {
       function clearDraft() {
         confirmPair[1](false)
         unmarkSelection()
-        textPair[1]('')
-        if (current !== undefined) {
-          drafts.set(current, '')
-          dirtySessions.add(current)
-        }
-        statusPair[1]('clearing draft.md…')
-        host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: '' }).then(function (res) {
+        const t = tab
+        setText(t, '', current)
+        if (current !== undefined) dirtyTabs.add(current + '|' + t)
+        statusPair[1]('clearing ' + fileForTab(t) + '…')
+        host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, file: fileForTab(t), text: '' }).then(function (res) {
           if (res && res.ok) {
-            if (current !== undefined) dirtySessions.delete(current)
-            statusPair[1]('draft.md cleared')
+            if (current !== undefined) dirtyTabs.delete(current + '|' + t)
+            statusPair[1](fileForTab(t) + ' cleared')
           } else statusPair[1]('clear failed: ' + (res && res.error ? res.error : 'unknown'))
         }).catch(function (error) {
           statusPair[1]('clear failed: ' + String((error && error.message) || error))
@@ -629,13 +684,11 @@ return {
       }
 
       function reloadDraft() {
-        host.call('scrivener/read', { cwd: cwd === undefined ? null : cwd }).then(function (res) {
+        const t = tab
+        host.call('scrivener/read', { cwd: cwd === undefined ? null : cwd, file: fileForTab(t) }).then(function (res) {
           if (res && res.ok && typeof res.text === 'string') {
-            if (current !== undefined) {
-              drafts.set(current, res.text)
-              dirtySessions.delete(current)
-            }
-            textPair[1](res.text)
+            setText(t, res.text, current)
+            if (current !== undefined) dirtyTabs.delete(current + '|' + t)
             statusPair[1]('reloaded')
           } else {
             statusPair[1]('reload failed: ' + (res && res.error ? res.error : 'unknown'))
@@ -674,6 +727,12 @@ return {
         onPaste: onPaste
       })
 
+      const tabBar = React.createElement('div', { className: 'scr-tabs' },
+        React.createElement('button', { type: 'button', className: tab === 'story' ? 'scr-tab scr-tab-active' : 'scr-tab', onClick: function () { selectTab('story') } }, 'Story'),
+        React.createElement('button', { type: 'button', className: tab === 'image' ? 'scr-tab scr-tab-active' : 'scr-tab', onClick: function () { selectTab('image') } }, 'Image'),
+        React.createElement('button', { type: 'button', className: tab === 'video' ? 'scr-tab scr-tab-active' : 'scr-tab', onClick: function () { selectTab('video') } }, 'Video')
+      )
+
       const popupEl = popup === null ? null : React.createElement('div', {
         className: 'scr-popup',
         style: {
@@ -708,7 +767,7 @@ return {
       )
 
       const confirmEl = confirm ? React.createElement('div', { className: 'scr-confirm' },
-        React.createElement('div', { className: 'scr-confirm-text' }, 'Clear draft.md? This empties the editor and overwrites draft.md with empty content.'),
+        React.createElement('div', { className: 'scr-confirm-text' }, 'Clear ' + fileForTab(tab) + '? This empties this tab and overwrites ' + fileForTab(tab) + ' with empty content.'),
         React.createElement('div', { className: 'scr-popup-row' },
           React.createElement('button', { type: 'button', onClick: function () { confirmPair[1](false) } }, 'Cancel'),
           React.createElement('button', { type: 'button', onClick: clearDraft }, 'Clear')
@@ -729,7 +788,7 @@ return {
         className: 'scr-pane',
         onMouseDown: function (event) {
           const target = event && event.target
-          if (target && typeof target.closest === 'function' && (target.closest('.scr-popup') || target.closest('.scr-confirm'))) return
+          if (target && typeof target.closest === 'function' && (target.closest('.scr-popup') || target.closest('.scr-confirm') || target.closest('.scr-tab'))) return
           dismissPopup()
           confirmPair[1](false)
         }
@@ -743,6 +802,7 @@ return {
             }
           } }, '×')
         ),
+        tabBar,
         editorEl,
         popupEl,
         confirmEl,
