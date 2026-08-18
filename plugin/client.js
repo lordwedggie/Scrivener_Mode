@@ -313,14 +313,16 @@ return {
             return
           }
           if (entry.chatOnly) {
+            const trimmed = String(reply || '').trim()
             if (entry.action === 'video') {
-              const lower = String(reply || '').toLowerCase()
-              if (lower.indexOf('overall_soundscape') === -1 || lower.indexOf('non_diegetic_music') === -1) {
-                statusPair[1]('reply is missing audio sections — asking for a complete redo…')
-                entry.lastSeq = maxNodeSeq(session.getSnapshot())
-                pendingRef.current = entry
-                pendingPair[1](Object.assign({}, entry))
-                session.prompt([{ type: 'text', text: 'Your video prompt reply is incomplete: it must contain all three labeled sections — "integrated_multimodal_description:", "overall_soundscape:", and "non_diegetic_music:" — each fully developed. It must include every dialogue line from the scene verbatim and full audio detail. Output the complete three-part prompt again, from the beginning, nothing omitted, beginning with the exact text "integrated_multimodal_description:". Do not stop early.' }], 'queue').catch(function () {})
+              const lower = trimmed.toLowerCase()
+              if (lower.indexOf('overall_soundscape') === -1 || lower.indexOf('non_diegetic_music') === -1 || trimmed.length < 80) {
+                redoOnce(entry, session, 'Your video prompt reply is incomplete: it must contain all three labeled sections — "integrated_multimodal_description:", "overall_soundscape:", and "non_diegetic_music:" — each fully developed. It must include every dialogue line from the scene verbatim and full audio detail. Output the complete three-part prompt again, from the beginning, nothing omitted, beginning with the exact text "integrated_multimodal_description:". Do not stop early.', 'reply is missing audio sections — asking for a complete redo…')
+                return
+              }
+            } else if (entry.action === 'image') {
+              if (trimmed.length < 30 || /^[,;:.…"']/.test(trimmed)) {
+                redoOnce(entry, session, 'Your image prompt reply was truncated or incomplete. Output the complete image prompt again, from the very beginning, nothing omitted, written as a single flowing paragraph of natural-language prose beginning with the exact text "A cinematic". Do not stop early.', 'reply was a fragment — asking for a complete redo…')
                 return
               }
             }
@@ -331,6 +333,11 @@ return {
         }
         const disposeTimer = (timer !== undefined && typeof timer.timeout === 'function')
           ? timer.timeout(function () {
+              const entry = pendingRef.current
+              if (entry !== null && entry.chatOnly && entry.redone !== true) {
+                redoOnce(entry, session, actionMessage(entry.action, entry.instruction, entry.selected), 'no reply yet — re-asking the model…')
+                return
+              }
               statusPair[1]('timed out waiting for the model reply')
               finish(false)
             }, pending.chatOnly ? 420000 : 180000)
@@ -366,6 +373,21 @@ return {
           unsubscribe()
         }
       }, [pending])
+
+      function redoOnce(entry, session, text, statusMsg) {
+        if (entry.redone) {
+          pendingRef.current = null
+          pendingPair[1](null)
+          statusPair[1]('still incomplete after retry — giving up')
+          return
+        }
+        entry.redone = true
+        entry.lastSeq = maxNodeSeq(session.getSnapshot())
+        pendingRef.current = entry
+        pendingPair[1](Object.assign({}, entry))
+        statusPair[1](statusMsg)
+        session.prompt([{ type: 'text', text: text }], 'queue').catch(function () {})
+      }
 
       function storePrompt(entry, reply) {
         const key = entry.action === 'image' ? 'image' : 'video'
@@ -586,7 +608,7 @@ return {
           refine: 'Refine the following passage from my manuscript: improve the prose while keeping the meaning, tone, and approximate length.',
           rewrite: 'Rewrite the following passage from my manuscript in a fresh style: keep the core meaning but vary the phrasing and sentence rhythm.',
           expand: 'Expand the following passage from my manuscript: add more detail, deepen the description, and significantly increase its length.',
-          image: 'Generate a detailed Krea2 t2i (text-to-image) prompt from the following scene in my story. Describe the subject, appearance, setting, art style, lighting, color palette, camera angle, and mood. Output ONLY the prompt itself, written as a single flowing paragraph of natural-language prose with no labels or headings. IMPORTANT: do NOT output JSON, code, or parameter lists — never include width, height, resolution, or any setting numbers.',
+          image: 'Generate a detailed Krea2 t2i (text-to-image) prompt from the following scene in my story. Your reply must begin with the exact text "A cinematic" and nothing before it. Describe the subject, appearance, setting, art style, lighting, color palette, camera angle, and mood. Output ONLY the prompt itself, written as a single flowing paragraph of natural-language prose with no labels or headings. IMPORTANT: do NOT output JSON, code, or parameter lists — never include width, height, resolution, or any setting numbers.',
           video: 'Generate a detailed MiniMax H3 (video + native audio) prompt from the following scene in my story. This request overrides your usual brief-chat behavior: brevity is forbidden, and you must write the complete prompt in full without stopping early. Your reply must begin with the exact text "integrated_multimodal_description:" and nothing before it. Output ONLY the prompt, written as flowing natural-language prose. IMPORTANT: do NOT output JSON, code, or parameter lists — never include resolution, fps, duration, or any setting numbers. Structure the prompt in exactly three labeled parts, ALL three required and fully developed: (1) "integrated_multimodal_description:" — shot-by-shot cinematic visuals with timestamps within a 4-15 second timeline (e.g., [Shot 1] …, [Shot 2] At 00:04.500, cut to …), covering subject, appearance, action, camera movement, pacing, and shot sequence; (2) "overall_soundscape:" — the diegetic audio: ambient sound, physical sounds, and ALL dialogue lines from the scene verbatim, timed to the visuals; (3) "non_diegetic_music:" — the score: mood, tempo, and instruments.'
         }
         let msg = templates[action] || templates.refine
@@ -606,7 +628,7 @@ return {
         const session = binding.session
         const lastSeq = maxNodeSeq(session.getSnapshot())
         const chatOnly = action === 'image' || action === 'video'
-        const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, selected: popup.selected, lastSeq: lastSeq, chatOnly: chatOnly, action: action, tab: tab }
+        const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, selected: popup.selected, lastSeq: lastSeq, chatOnly: chatOnly, action: action, tab: tab, instruction: instruction, redone: false }
         pendingRef.current = entry
         pendingPair[1](entry)
         unmarkSelection()
