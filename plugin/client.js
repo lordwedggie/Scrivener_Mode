@@ -14,7 +14,8 @@ return {
       '.scr-x{border:none;background:transparent;color:var(--dsw-alias-label-secondary,#bbb);cursor:pointer;font-size:16px;line-height:1;padding:4px}',
       '.scr-editor{flex:1;overflow:auto;padding:16px;white-space:pre-wrap;line-height:1.7;outline:none;color:var(--dsw-alias-label-primary,#eee)}',
       '.scr-ins{color:var(--dsw-static-blue-450,#7db1ff)}',
-      '.scr-sel{background:rgba(125,177,255,.22);border-radius:2px}',
+      '.scr-sel{background:rgba(255,166,44,.28);border-radius:2px}',
+      '::highlight(scr-sel){background-color:rgba(255,166,44,.32);color:inherit}',
       '.scr-foot{display:flex;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));font-size:12px;color:var(--dsw-alias-label-secondary,#bbb);flex-wrap:wrap}',
       '.scr-btn{border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-primary,#eee);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}',
       '.scr-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}',
@@ -393,6 +394,11 @@ return {
       }
 
       function unmarkSelection() {
+        try {
+          if (typeof window !== 'undefined' && window.CSS && window.CSS.highlights && typeof window.CSS.highlights.delete === 'function') {
+            window.CSS.highlights.delete('scr-sel')
+          }
+        } catch (e) {}
         const el = editorRef.current
         if (el === null || typeof document === 'undefined') return
         try {
@@ -409,13 +415,23 @@ return {
       }
 
       function markSelectionRange(range) {
+        try {
+          if (typeof window !== 'undefined' && typeof window.Highlight === 'function' && window.CSS && window.CSS.highlights && typeof window.CSS.highlights.set === 'function') {
+            const highlight = new window.Highlight(range)
+            window.CSS.highlights.set('scr-sel', highlight)
+            return
+          }
+        } catch (e) {}
         const el = editorRef.current
         if (el === null || typeof document === 'undefined') return
         unmarkSelection()
         try {
           const span = document.createElement('span')
           span.className = 'scr-sel'
-          range.surroundContents(span)
+          const fragment = range.extractContents()
+          span.appendChild(fragment)
+          range.insertNode(span)
+          el.normalize()
         } catch (e) {}
       }
 
