@@ -554,6 +554,15 @@ return {
             statusPair[1]('store failed: ' + String((error && error.message) || error))
           })
         }
+        // A chat-only action must never touch the story: revert any change
+        // that leaked in during the request (e.g. a stray capture).
+        if (entry.storyBefore !== undefined && textsRef.current.story !== entry.storyBefore) {
+          setText('story', entry.storyBefore, current)
+          if (current !== undefined) {
+            host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, file: 'draft.md', text: entry.storyBefore }).catch(function () {})
+            statusPair[1]('stored in ' + (key === 'image' ? 'Image' : 'Video') + ' tab · also in chat · story restored')
+          }
+        }
         pendingRef.current = null
         pendingPair[1](null)
       }
@@ -763,7 +772,7 @@ return {
         const session = binding.session
         const lastSeq = maxNodeSeq(session.getSnapshot())
         const chatOnly = action === 'image' || action === 'video'
-        const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, selected: popup.selected, lastSeq: lastSeq, chatOnly: chatOnly, action: action, tab: tab, instruction: instruction, redone: false }
+        const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, selected: popup.selected, lastSeq: lastSeq, chatOnly: chatOnly, action: action, tab: tab, instruction: instruction, redone: false, storyBefore: textsRef.current.story }
         pendingRef.current = entry
         pendingPair[1](entry)
         unmarkSelection()

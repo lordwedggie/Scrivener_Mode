@@ -1,0 +1,5 @@
+# Scrivener pane (dual-face): the node half serves /scr-api file routes,
+# the client half is the Story/Image/Video editor pane (dsh.client).
+- insert:
+    - id: scr-pane
+      name: 'scr-pane'
