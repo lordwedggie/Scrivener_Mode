@@ -14,6 +14,7 @@ return {
       '.scr-x{border:none;background:transparent;color:var(--dsw-alias-label-secondary,#bbb);cursor:pointer;font-size:16px;line-height:1;padding:4px}',
       '.scr-editor{flex:1;overflow:auto;padding:16px;white-space:pre-wrap;line-height:1.7;outline:none;color:var(--dsw-alias-label-primary,#eee)}',
       '.scr-ins{color:var(--dsw-static-blue-450,#7db1ff)}',
+      '.scr-sel{background:rgba(125,177,255,.22);border-radius:2px}',
       '.scr-foot{display:flex;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));font-size:12px;color:var(--dsw-alias-label-secondary,#bbb);flex-wrap:wrap}',
       '.scr-btn{border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-primary,#eee);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}',
       '.scr-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}',
@@ -141,7 +142,6 @@ return {
       const panelRef = React.useState({ current: null })[0]
       const pendingRef = React.useState({ current: null })[0]
       const instrRef = React.useState({ current: '' })[0]
-      const savedRangeRef = React.useState({ current: null })[0]
       const textPair = React.useState('')
       const text = textPair[0]
       const textRef = React.useState({ current: '' })[0]
@@ -335,6 +335,47 @@ return {
         textPair[1](t)
       }
 
+      function unmarkSelection() {
+        const el = editorRef.current
+        if (el === null || typeof document === 'undefined') return
+        try {
+          const marks = el.querySelectorAll('.scr-sel')
+          for (let i = 0; i < marks.length; i++) {
+            const span = marks[i]
+            const parent = span.parentNode
+            if (parent === null) continue
+            while (span.firstChild !== null) parent.insertBefore(span.firstChild, span)
+            parent.removeChild(span)
+          }
+          el.normalize()
+        } catch (e) {}
+      }
+
+      function markSelectionRange(range) {
+        const el = editorRef.current
+        if (el === null || typeof document === 'undefined') return
+        unmarkSelection()
+        try {
+          const span = document.createElement('span')
+          span.className = 'scr-sel'
+          range.surroundContents(span)
+        } catch (e) {}
+      }
+
+      function isSelectionInsideMark() {
+        const el = editorRef.current
+        if (el === null || typeof window === 'undefined') return false
+        try {
+          const sel = window.getSelection()
+          if (!sel || sel.anchorNode === null) return false
+          const an = sel.anchorNode
+          const node = an.nodeType === 3 ? an.parentElement : an
+          return node !== null && typeof node.closest === 'function' && node.closest('.scr-sel') !== null
+        } catch (e) {
+          return false
+        }
+      }
+
       function currentSelection() {
         if (typeof window === 'undefined' || typeof document === 'undefined') return null
         const el = editorRef.current
@@ -378,13 +419,27 @@ return {
           hi: Math.max(start, end),
           selected: selected,
           top: top,
-          left: left
+          left: left,
+          range: range
         }
       }
 
       function onSelectionEvent() {
         if (pendingRef.current !== null) { popupPair[1](null); return }
-        popupPair[1](currentSelection())
+        if (isSelectionInsideMark()) return
+        const sel = currentSelection()
+        if (sel === null) {
+          unmarkSelection()
+          popupPair[1](null)
+          return
+        }
+        markSelectionRange(sel.range)
+        popupPair[1](sel)
+      }
+
+      function dismissPopup() {
+        unmarkSelection()
+        popupPair[1](null)
       }
 
       function actionMessage(action, instruction, passage) {
@@ -412,6 +467,7 @@ return {
         const entry = { sessionId: current, lo: popup.lo, hi: popup.hi, lastSeq: lastSeq }
         pendingRef.current = entry
         pendingPair[1](entry)
+        unmarkSelection()
         popupPair[1](null)
         statusPair[1]('asking the model…')
         session.prompt([{ type: 'text', text: actionMessage(action, instruction, popup.selected) }], 'queue').then(function (result) {
@@ -489,18 +545,6 @@ return {
         try { if (document.execCommand) document.execCommand('insertText', false, data) } catch (e) {}
       }
 
-      function restoreSavedRange() {
-        const saved = savedRangeRef.current
-        if (saved === null) return
-        try {
-          if (typeof window === 'undefined') return
-          const sel = window.getSelection()
-          if (!sel) return
-          sel.removeAllRanges()
-          sel.addRange(saved)
-        } catch (e) {}
-      }
-
       const words = (text.trim() === '') ? 0 : text.trim().split(/\s+/).length
 
       const editorEl = React.createElement('div', {
@@ -523,7 +567,11 @@ return {
           left: popup.left + 'px',
           top: popup.top + 'px'
         },
-        onMouseDown: function (event) { event.preventDefault() }
+        onMouseDown: function (event) {
+          const target = event && event.target
+          if (target && typeof target.closest === 'function' && target.closest('.scr-instr')) return
+          event.preventDefault()
+        }
       },
         React.createElement('div', { className: 'scr-popup-row' },
           React.createElement('button', { type: 'button', disabled: pending !== null, onClick: function () { runAction('refine', instrRef.current) } }, 'Refine'),
@@ -536,30 +584,9 @@ return {
           onKeyDown: function (event) {
             event.stopPropagation()
             if (event.key === 'Enter') runAction('refine', instrRef.current)
-            if (event.key === 'Escape') popupPair[1](null)
+            if (event.key === 'Escape') dismissPopup()
           },
-          onInput: function (event) { instrRef.current = event.target.value },
-          onMouseDown: function (event) {
-            event.preventDefault()
-            event.stopPropagation()
-            try {
-              if (typeof window !== 'undefined') {
-                const sel = window.getSelection()
-                if (sel && sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0).cloneRange()
-              }
-              const el = event.target
-              el.focus()
-              if (typeof el.setSelectionRange === 'function') {
-                const len = el.value.length
-                el.setSelectionRange(len, len)
-              }
-              restoreSavedRange()
-            } catch (e) {}
-          },
-          onKeyUp: function (event) {
-            if (event.key === 'Escape') { popupPair[1](null); return }
-            restoreSavedRange()
-          }
+          onInput: function (event) { instrRef.current = event.target.value }
         })
       )
 
@@ -577,7 +604,7 @@ return {
         onMouseDown: function (event) {
           const target = event && event.target
           if (target && typeof target.closest === 'function' && target.closest('.scr-popup')) return
-          popupPair[1](null)
+          dismissPopup()
         }
       },
         React.createElement('div', { className: 'scr-head' },
