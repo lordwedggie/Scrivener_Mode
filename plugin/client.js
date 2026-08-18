@@ -46,6 +46,7 @@ return {
     }
 
     const drafts = new Map()
+    const dirtySessions = new Set()
 
     function nodeText(node) {
       if (!node || !Array.isArray(node.blocks)) return ''
@@ -158,19 +159,36 @@ return {
 
       React.useEffect(function () {
         if (current === undefined) return
-        if (drafts.has(current)) { textPair[1](drafts.get(current)); return }
+        const cached = drafts.has(current)
+        const dirty = dirtySessions.has(current)
+        if (cached && dirty) { textPair[1](drafts.get(current)); return }
         host.call('scrivener/read', { cwd: cwd === undefined ? null : cwd }).then(function (res) {
           if (res && res.ok && typeof res.text === 'string') {
-            drafts.set(current, res.text)
-            textPair[1](res.text)
+            const fileText = res.text
+            const cachedText = cached ? drafts.get(current) : ''
+            if (!cached || fileText.trim() !== cachedText.trim()) {
+              drafts.set(current, fileText)
+              textPair[1](fileText)
+              dirtySessions.delete(current)
+              statusPair[1]('loaded from draft.md')
+            } else {
+              textPair[1](cachedText)
+            }
           } else if (res && res.missing) {
-            drafts.set(current, '')
-            textPair[1]('')
+            if (!cached || !dirty) {
+              drafts.set(current, '')
+              textPair[1]('')
+              dirtySessions.delete(current)
+            } else {
+              textPair[1](drafts.get(current))
+            }
           } else {
-            statusPair[1]('load failed: ' + (res && res.error ? res.error : 'unknown'))
+            if (cached) textPair[1](drafts.get(current))
+            else statusPair[1]('load failed: ' + (res && res.error ? res.error : 'unknown'))
           }
         }).catch(function (error) {
-          statusPair[1]('load failed: ' + String((error && error.message) || error))
+          if (cached) textPair[1](drafts.get(current))
+          else statusPair[1]('load failed: ' + String((error && error.message) || error))
         })
       }, [current, cwd])
 
@@ -210,6 +228,7 @@ return {
               if (fileText !== '' && fileText.trim() !== before.trim()) {
                 drafts.set(current, fileText)
                 textPair[1](fileText)
+                dirtySessions.delete(current)
                 statusPair[1]('loaded from draft.md')
                 return
               }
@@ -225,7 +244,9 @@ return {
                 drafts.set(current, next)
                 textPair[1](next)
                 statusPair[1]('captured the latest reply')
-                host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: next }).catch(function () {})
+                host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: next }).then(function (saveRes) {
+                  if (saveRes && saveRes.ok) dirtySessions.delete(current)
+                }).catch(function () {})
               }
             }
           }).catch(function () {
@@ -336,7 +357,10 @@ return {
         let r = String(reply || '').replace(/^[ \t\r\n]+/, '').replace(/[ \t\r\n]+$/, '')
         const inserted = lead + r + trail
         const next = full.slice(0, lo) + inserted + full.slice(hi)
-        if (current !== undefined) drafts.set(current, next)
+        if (current !== undefined) {
+          drafts.set(current, next)
+          dirtySessions.add(current)
+        }
         try {
           el.innerHTML = toHtml(next.slice(0, lo)) + '<span class="scr-ins">' + toHtml(inserted) + '</span>' + toHtml(next.slice(lo + inserted.length))
         } catch (e) {
@@ -361,7 +385,10 @@ return {
         const el = editorRef.current
         if (el === null) return
         const t = el.innerText || ''
-        if (current !== undefined) drafts.set(current, t)
+        if (current !== undefined) {
+          drafts.set(current, t)
+          dirtySessions.add(current)
+        }
         textPair[1](t)
       }
 
@@ -519,8 +546,10 @@ return {
       function saveDraft() {
         statusPair[1]('saving…')
         host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: text }).then(function (res) {
-          if (res && res.ok) statusPair[1]('saved to ' + (res.path || 'draft.md'))
-          else statusPair[1]('save failed: ' + (res && res.error ? res.error : 'unknown'))
+          if (res && res.ok) {
+            if (current !== undefined) dirtySessions.delete(current)
+            statusPair[1]('saved to ' + (res.path || 'draft.md'))
+          } else statusPair[1]('save failed: ' + (res && res.error ? res.error : 'unknown'))
         }).catch(function (error) {
           statusPair[1]('save failed: ' + String((error && error.message) || error))
         })
@@ -554,7 +583,10 @@ return {
       function reloadDraft() {
         host.call('scrivener/read', { cwd: cwd === undefined ? null : cwd }).then(function (res) {
           if (res && res.ok && typeof res.text === 'string') {
-            if (current !== undefined) drafts.set(current, res.text)
+            if (current !== undefined) {
+              drafts.set(current, res.text)
+              dirtySessions.delete(current)
+            }
             textPair[1](res.text)
             statusPair[1]('reloaded')
           } else {
