@@ -9,10 +9,7 @@ return {
 
     styles.insert([
       '.scr-pane{position:relative;width:100%;height:100%;display:flex;flex-direction:column;background:var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-base,#1e1e28));border-left:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,#eee);font-size:14px}',
-      '.scr-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08))}',
-      '.scr-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#eee)}',
-      '.scr-x{border:none;background:transparent;color:var(--dsw-alias-label-secondary,#bbb);cursor:pointer;font-size:16px;line-height:1;padding:4px}',
-      '.scr-tabs{display:flex;gap:2px;padding:6px 10px 0;border-bottom:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08))}',
+      '.scr-tabs{display:flex;gap:2px;padding:10px 10px 0;border-bottom:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08))}',
       '.scr-tab{flex:1;border:1px solid transparent;border-bottom:none;background:transparent;color:var(--dsw-alias-label-secondary,#bbb);border-radius:6px 6px 0 0;padding:6px 0;cursor:pointer;font-size:13px}',
       '.scr-tab:hover{color:var(--dsw-alias-label-primary,#eee);background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}',
       '.scr-tab-active{color:var(--dsw-alias-label-primary,#eee);background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.05));border-color:var(--dsw-alias-border-l2,rgba(255,255,255,.14))}',
@@ -793,15 +790,6 @@ return {
           confirmPair[1](false)
         }
       },
-        React.createElement('div', { className: 'scr-head' },
-          React.createElement('span', { className: 'scr-title' }, 'Scrivener editor'),
-          React.createElement('button', { type: 'button', className: 'scr-x', onClick: function () {
-            setPaneOpen(false)
-            if (layout !== undefined) {
-              try { layout.closeDetails() } catch (e) {}
-            }
-          } }, '×')
-        ),
         tabBar,
         editorEl,
         popupEl,
