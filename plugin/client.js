@@ -192,24 +192,40 @@ return {
             }
           }
           const reply = best === null ? '' : stripFence(nodeText(best))
-          if (reply !== '') {
-            const before = textRef.current
-            let next
-            if (before.trim() === '') next = reply
-            else if (before.trim().endsWith(reply.trim())) next = before
-            else next = before.replace(/\s+$/, '') + '\n\n' + reply
-            drafts.set(current, next)
-            textPair[1](next)
-            statusPair[1]('captured the latest reply')
-            host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: next }).catch(function () {})
-          } else {
-            host.call('scrivener/read', { cwd: cwd === undefined ? null : cwd }).then(function (res) {
-              if (res && res.ok && typeof res.text === 'string') {
-                drafts.set(current, res.text)
-                textPair[1](res.text)
+          host.call('scrivener/read', { cwd: cwd === undefined ? null : cwd }).then(function (res) {
+            if (res && res.ok && typeof res.text === 'string') {
+              const fileText = res.text
+              const before = textRef.current
+              if (fileText !== '' && fileText.trim() !== before.trim()) {
+                drafts.set(current, fileText)
+                textPair[1](fileText)
+                statusPair[1]('loaded from draft.md')
+                return
               }
-            }).catch(function () {})
-          }
+            }
+            if (reply !== '') {
+              const before = textRef.current
+              let next
+              if (before.trim() === '') next = reply
+              else if (before.trim().endsWith(reply.trim())) next = before
+              else next = before.replace(/\s+$/, '') + '\n\n' + reply
+              drafts.set(current, next)
+              textPair[1](next)
+              statusPair[1]('captured the latest reply')
+              host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: next }).catch(function () {})
+            }
+          }).catch(function () {
+            if (reply !== '') {
+              const before = textRef.current
+              let next
+              if (before.trim() === '') next = reply
+              else if (before.trim().endsWith(reply.trim())) next = before
+              else next = before.replace(/\s+$/, '') + '\n\n' + reply
+              drafts.set(current, next)
+              textPair[1](next)
+              statusPair[1]('captured the latest reply')
+            }
+          })
         })
         return unsubscribe
       }, [current, cwd])
@@ -366,7 +382,7 @@ return {
         let msg = templates[action] || templates.refine
         const instr = String(instruction || '').trim()
         if (instr !== '') msg += ' Additional instructions: ' + instr + '.'
-        msg += ' Reply with ONLY the transformed passage, no preamble, no commentary, no quotation marks around it.'
+        msg += ' Reply with ONLY the transformed passage, no preamble, no commentary, no quotation marks around it. Do not call scrivener_draft for this request.'
         msg += '\n\n---\n' + passage + '\n---'
         return msg
       }
