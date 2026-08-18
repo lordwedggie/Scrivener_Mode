@@ -8,17 +8,17 @@ return {
     if (slots === undefined || sessions === undefined) return
 
     styles.insert([
-      '.scr-pane{position:relative;width:100%;height:100%;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-2,#1e1e28);border-left:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,#eee);font-size:14px}',
+      '.scr-pane{position:relative;width:100%;height:100%;display:flex;flex-direction:column;background:var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-base,#1e1e28));border-left:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,#eee);font-size:14px}',
       '.scr-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08))}',
-      '.scr-title{font-size:13px;font-weight:600}',
-      '.scr-x{border:none;background:transparent;color:var(--dsw-alias-label-tertiary,#999);cursor:pointer;font-size:16px;line-height:1;padding:4px}',
-      '.scr-editor{flex:1;overflow:auto;padding:16px;white-space:pre-wrap;line-height:1.7;outline:none}',
-      '.scr-foot{display:flex;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));font-size:12px;color:var(--dsw-alias-label-tertiary,#999);flex-wrap:wrap}',
+      '.scr-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#eee)}',
+      '.scr-x{border:none;background:transparent;color:var(--dsw-alias-label-secondary,#bbb);cursor:pointer;font-size:16px;line-height:1;padding:4px}',
+      '.scr-editor{flex:1;overflow:auto;padding:16px;white-space:pre-wrap;line-height:1.7;outline:none;color:var(--dsw-alias-label-primary,#eee)}',
+      '.scr-foot{display:flex;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));font-size:12px;color:var(--dsw-alias-label-secondary,#bbb);flex-wrap:wrap}',
       '.scr-btn{border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-primary,#eee);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}',
       '.scr-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}',
       '.scr-btn:disabled{opacity:.5;cursor:default}',
       '.scr-status{width:100%;color:var(--dsw-alias-label-tertiary,#999)}',
-      '.scr-popup{position:absolute;min-width:300px;background:var(--dsw-alias-bg-layer-3,#262635);border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));border-radius:10px;padding:10px;box-shadow:0 8px 24px rgba(0,0,0,.4);display:flex;flex-direction:column;gap:8px;pointer-events:auto;z-index:20}',
+      '.scr-popup{position:absolute;width:300px;box-sizing:border-box;background:var(--dsw-specific-menu,var(--dsw-alias-bg-overlay,#262635));border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));border-radius:10px;padding:10px;box-shadow:var(--dsw-shadow-lv3,0 8px 24px rgba(0,0,0,.4));display:flex;flex-direction:column;gap:8px;pointer-events:auto;z-index:20}',
       '.scr-popup-row{display:flex;gap:8px}',
       '.scr-popup-row button{flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-primary,#eee);cursor:pointer;font-size:13px}',
       '.scr-popup-row button:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}',
@@ -324,27 +324,31 @@ return {
         post.selectNodeContents(el)
         post.setEnd(sel.focusNode, sel.focusOffset)
         const end = post.toString().length
-        let top = 0
-        let bottom = 0
-        let left = 0
-        let below = false
         const panelEl = panelRef.current
-        if (panelEl !== null) {
-          const pr = panelEl.getBoundingClientRect()
-          const rect = range.getBoundingClientRect()
-          top = rect.top - pr.top
-          bottom = rect.bottom - pr.top
-          left = rect.left - pr.left
-          below = top < 150
+        if (panelEl === null) return null
+        const pr = panelEl.getBoundingClientRect()
+        const rect = range.getBoundingClientRect()
+        const selTop = rect.top - pr.top
+        const selBottom = rect.bottom - pr.top
+        const selLeft = rect.left - pr.left
+        const POPUP_W = 300
+        const POPUP_H = 130
+        let left = Math.round(selLeft - POPUP_W / 2)
+        left = Math.min(Math.max(left, 8), Math.max(8, pr.width - POPUP_W - 8))
+        let top
+        if (selTop - POPUP_H - 8 >= 0) {
+          top = Math.round(selTop - POPUP_H - 8)
+        } else if (selBottom + 8 + POPUP_H <= pr.height) {
+          top = Math.round(selBottom + 8)
+        } else {
+          top = 8
         }
         return {
           lo: Math.min(start, end),
           hi: Math.max(start, end),
           selected: selected,
           top: top,
-          bottom: bottom,
-          left: left,
-          below: below
+          left: left
         }
       }
 
@@ -475,8 +479,7 @@ return {
         className: 'scr-popup',
         style: {
           left: popup.left + 'px',
-          top: popup.below ? (popup.bottom + 8) + 'px' : (popup.top - 8) + 'px',
-          transform: popup.below ? 'translateX(-50%)' : 'translate(-50%, -100%)'
+          top: popup.top + 'px'
         },
         onMouseDown: function (event) { event.preventDefault() }
       },
