@@ -309,7 +309,7 @@ return {
           ? timer.timeout(function () {
               statusPair[1]('timed out waiting for the model reply')
               finish(false)
-            }, 180000)
+            }, pending.chatOnly ? 420000 : 180000)
           : function () {}
         const check = function () {
           if (settled) return
@@ -525,13 +525,13 @@ return {
           refine: 'Refine the following passage from my manuscript: improve the prose while keeping the meaning, tone, and approximate length.',
           rewrite: 'Rewrite the following passage from my manuscript in a fresh style: keep the core meaning but vary the phrasing and sentence rhythm.',
           expand: 'Expand the following passage from my manuscript: add more detail, deepen the description, and significantly increase its length.',
-          image: 'Generate a detailed Krea2 t2i (text-to-image) prompt from the following scene in my story. Describe the subject, appearance, setting, art style, lighting, color palette, camera angle, and mood. Output ONLY the prompt itself, written as flowing natural-language prose. IMPORTANT: do NOT output JSON, code, or parameter lists — never include width, height, resolution, or any setting numbers.',
-          video: 'Generate a detailed H3 (video generation) prompt from the following scene in my story. Describe the subject, action, motion, camera movement, pacing, and shot sequence. Output ONLY the prompt itself, written as flowing natural-language prose. IMPORTANT: do NOT output JSON, code, or parameter lists — never include resolution, fps, duration, or any setting numbers.'
+          image: 'Generate a detailed Krea2 t2i (text-to-image) prompt from the following scene in my story. Describe the subject, appearance, setting, art style, lighting, color palette, camera angle, and mood. Output ONLY the prompt itself, written as a single flowing paragraph of natural-language prose with no labels or headings. IMPORTANT: do NOT output JSON, code, or parameter lists — never include width, height, resolution, or any setting numbers.',
+          video: 'Generate a detailed MiniMax H3 (video + native audio) prompt from the following scene in my story. Your reply must begin with the exact text "integrated_multimodal_description:" and nothing before it. Output ONLY the prompt, written as flowing natural-language prose. IMPORTANT: do NOT output JSON, code, or parameter lists — never include resolution, fps, duration, or any setting numbers. Structure the prompt in exactly three labeled parts: (1) "integrated_multimodal_description:" — shot-by-shot cinematic visuals with timestamps within a 4-15 second timeline (e.g., [Shot 1] …, [Shot 2] At 00:04.500, cut to …), covering subject, appearance, action, camera movement, pacing, and shot sequence; (2) "overall_soundscape:" — the diegetic audio: ambient sound, physical sounds, and dialogue timed to the visuals; (3) "non_diegetic_music:" — the score: mood, tempo, and instruments.'
         }
         let msg = templates[action] || templates.refine
         const instr = String(instruction || '').trim()
         if (instr !== '') msg += ' Additional instructions: ' + instr + '.'
-        msg += ' Reply with ONLY the prompt — no labels, no preamble, no commentary, no quotation marks around it. Write plain prose only, never JSON or parameter lists. Do not call scrivener_draft for this request.'
+        msg += ' Reply with ONLY the prompt — no preamble, no commentary, no quotation marks around the whole prompt. Write plain prose only, never JSON or parameter lists. Do not call scrivener_draft for this request.'
         msg += '\n\n---\n' + passage + '\n---'
         return msg
       }
