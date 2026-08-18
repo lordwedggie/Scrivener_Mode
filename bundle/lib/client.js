@@ -5,6 +5,7 @@ window.__ModuleLoader__.load({
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		var react = require("react");
+		var runtime = require("@deepseek-ai/dsh-client-runtime/client");
 
 		const CSS = [
 			'.scr-pane{position:relative;width:100%;height:100%;display:flex;flex-direction:column;background:var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-base,#1e1e28));border-left:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,#eee);font-size:14px}',
@@ -30,7 +31,15 @@ window.__ModuleLoader__.load({
 			'.scr-confirm{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:300px;box-sizing:border-box;background:var(--dsw-specific-menu,var(--dsw-alias-bg-overlay,#262635));border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));border-radius:10px;padding:12px;box-shadow:var(--dsw-shadow-lv3,0 8px 24px rgba(0,0,0,.4));display:flex;flex-direction:column;gap:10px;pointer-events:auto;z-index:30}',
 			'.scr-confirm-text{font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,#eee)}',
 			'.scr-confirm .scr-popup-row button:last-child{color:#ffb08a;border-color:rgba(255,150,110,.45)}',
-			'.scr-toggle{border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-primary,#eee);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}'
+			'.scr-toggle{border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-primary,#eee);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}',
+			'.scr-settings-row{flex-direction:column;gap:8px;padding:10px 0;display:flex}',
+			'.scr-settings-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#eee)}',
+			'.scr-settings-line{justify-content:space-between;align-items:center;gap:12px;display:flex}',
+			'.scr-settings-label{font-size:13px;color:var(--dsw-alias-label-secondary,#bbb)}',
+			'.scr-settings-toggle{cursor:pointer;border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-primary,#eee);border-radius:999px;min-width:52px;padding:4px 12px;font-size:12px}',
+			'.scr-settings-toggle[data-on=true]{border-color:var(--dsw-alias-brand-primary,var(--dsw-static-deepseek-450,#3964fe));color:var(--dsw-alias-brand-primary,var(--dsw-static-deepseek-450,#3964fe))}',
+			'.scr-addbtn{border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-secondary,#bbb);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:12px}',
+			'.scr-addbtn:hover{color:var(--dsw-alias-label-primary,#eee);background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}'
 		].join('\n');
 		const tagId = "scr-pane/pane.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
@@ -75,6 +84,93 @@ window.__ModuleLoader__.load({
 		const selectionMemory = new Map();
 		const scrollMemory = new Map();
 		let pluginCtx = undefined;
+		// Settings scope (bound in apply) and the pane's live bridge.
+		let scrScope = undefined;
+		let paneCtl = undefined;
+		// messageId -> { key: 'image'|'video', selected, text } for replies that
+		// produced a prompt while "Automatically add prompts" is OFF.
+		const promptReplies = new Map();
+
+		function appendPrompt(key, selected, text) {
+			if (paneCtl === undefined) return;
+			const file = key === 'image' ? 'images.md' : 'videos.md';
+			const firstLine = String(selected || '').split('\n').map(function (s) { return s.trim(); }).filter(Boolean)[0] || '';
+			const excerpt = firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine;
+			const header = excerpt === '' ? '## Prompt' : '## ' + excerpt;
+			const trimmed = String(text || '').trim();
+			const before = (paneCtl.tabText(key) || '').trimEnd();
+			const piece = before === '' ? header + '\n\n' + trimmed : before + '\n\n' + header + '\n\n' + trimmed;
+			paneCtl.setText(key, piece, paneCtl.currentNow());
+			const sid = paneCtl.currentNow();
+			if (sid !== undefined) {
+				const dkey = sid + '|' + key;
+				dirtyTabs.add(dkey);
+				paneCtl.save(sid, file, piece).then(function (res) {
+					if (res && res.ok) {
+						dirtyTabs.delete(dkey);
+						paneCtl.setStatus('prompt added to ' + (key === 'image' ? 'Image' : 'Video') + ' tab');
+					} else {
+						paneCtl.setStatus('add failed: ' + (res && res.error ? res.error : 'unknown'));
+					}
+				}).catch(function (error) {
+					paneCtl.setStatus('add failed: ' + String((error && error.message) || error));
+				});
+			}
+		}
+
+		function addPromptFromReply(messageId) {
+			if (messageId === undefined || messageId === null) return;
+			const rec = promptReplies.get(messageId);
+			if (rec === undefined) return;
+			promptReplies.delete(messageId);
+			appendPrompt(rec.key, rec.selected, rec.text);
+		}
+
+		function AddPromptButton(props) {
+			const rec = promptReplies.get(props.messageId);
+			if (rec === undefined) return null;
+			return react.createElement('button', {
+				type: 'button',
+				className: 'scr-addbtn',
+				title: 'Add this generated prompt to the ' + (rec.key === 'image' ? 'Image' : 'Video') + ' tab',
+				onClick: function () { addPromptFromReply(props.messageId); }
+			}, 'Add prompt');
+		}
+
+		function createScrSettingsStore() {
+			return runtime.defineStore({
+				init: () => ({
+					autoStore: true,
+					revision: -1
+				}),
+				actions: {
+					sync: (d, autoStore, revision) => {
+						if (revision <= d.revision) return;
+						d.autoStore = autoStore === true;
+						d.revision = revision;
+					},
+					setAutoStore: (d, v) => {
+						d.autoStore = v === true;
+					}
+				}
+			});
+		}
+
+		function ScrSettingsRow(props) {
+			const autoStore = props.useStore((s) => s.autoStore);
+			return react.createElement('div', { className: 'scr-settings-row' },
+				react.createElement('div', { className: 'scr-settings-title' }, 'Scrivener'),
+				react.createElement('div', { className: 'scr-settings-line' },
+					react.createElement('span', { className: 'scr-settings-label' }, 'Automatically add prompts'),
+					react.createElement('button', {
+						type: 'button',
+						className: 'scr-settings-toggle',
+						'data-on': autoStore === true ? 'true' : 'false',
+						onClick: function () { props.setAutoStore(!autoStore); }
+					}, autoStore === true ? 'On' : 'Off')
+				)
+			);
+		}
 
 		function rangesFor(sessionId, tabKey) {
 			if (sessionId === undefined) return [];
@@ -278,6 +374,37 @@ window.__ModuleLoader__.load({
 			const confirmPair = react.useState(false);
 			const confirm = confirmPair[0];
 			const scrollContextRef = react.useState({ current: { session: undefined, tab: undefined } })[0];
+			const autoStorePair = react.useState(true);
+			const autoStoreRef = react.useState({ current: true })[0];
+
+			react.useEffect(function () { autoStoreRef.current = autoStorePair[0]; }, [autoStorePair[0]]);
+
+			react.useEffect(function () {
+				if (scrScope === undefined) return;
+				const syncScope = function () {
+					const snap = scrScope.getSnapshot();
+					if (snap && snap.status === 'ready' && snap.value !== undefined && typeof snap.value.autoStore === 'boolean') {
+						autoStorePair[1](snap.value.autoStore);
+					} else {
+						autoStorePair[1](true);
+					}
+				};
+				syncScope();
+				return scrScope.subscribe(syncScope);
+			}, []);
+
+			react.useEffect(function () {
+				paneCtl = {
+					setText: setText,
+					setStatus: statusPair[1],
+					save: function (sid, file, text) { return apiSave(cwd, sid, file, text); },
+					currentNow: function () { return current; },
+					tabText: function (key) { return textsRef.current[key] || ''; }
+				};
+				return function () {
+					paneCtl = undefined;
+				};
+			}, [current, cwd]);
 
 			react.useEffect(function () { pendingRef.current = pending; }, [pending]);
 			react.useEffect(function () { textsRef.current = texts; }, [texts]);
@@ -467,7 +594,7 @@ window.__ModuleLoader__.load({
 				const session = binding.session;
 				let userSeq = -1;
 				let settled = false;
-				const finish = function (ok, reply) {
+				const finish = function (ok, reply, messageId) {
 					if (settled) return;
 					settled = true;
 					disposeTimer();
@@ -492,7 +619,16 @@ window.__ModuleLoader__.load({
 								return;
 							}
 						}
-						storePrompt(entry, reply);
+						if (autoStoreRef.current !== false) {
+							storePrompt(entry, reply);
+						} else {
+							if (messageId !== undefined && messageId !== null) {
+								promptReplies.set(messageId, { key: entry.action === 'image' ? 'image' : 'video', selected: entry.selected, text: trimmed });
+							}
+							pendingRef.current = null;
+							pendingPair[1](null);
+							statusPair[1]('prompt ready — use "Add prompt" under the reply');
+						}
 						return;
 					}
 					applyReplacement(entry, reply);
@@ -531,7 +667,7 @@ window.__ModuleLoader__.load({
 					if (best === null) return;
 					const reply = stripFence(nodeText(best));
 					if (reply.trim() === '') return;
-					finish(true, reply);
+					finish(true, reply, best.messageId);
 				};
 				const unsubscribe = session.subscribe(check);
 				check();
@@ -1001,10 +1137,42 @@ window.__ModuleLoader__.load({
 			ctx.slots.inject('conversation.session.header.actions', function () {
 				return ctx.slots.register({ name: 'conversation.session.header.actions', id: 'scr-pane-toggle', order: 0, label: function () { return 'Scrivener'; } }, ToggleButton);
 			});
+			ctx.slots.inject('conversation.chat.assistant-actions', function () {
+				return ctx.slots.register({ name: 'conversation.chat.assistant-actions', id: 'scr-add-prompt', order: 0, label: function () { return 'Add prompt'; } }, AddPromptButton);
+			});
+			// Settings: the Scrivener row right below Agent Presets (order -25).
+			scrScope = ctx.settingsScope.bind({ namespace: 'scr-pane' });
+			const store = createScrSettingsStore();
+			let bound;
+			const sync = function () {
+				const snap = scrScope.getSnapshot();
+				if (snap.status !== 'ready' || snap.value === undefined) return;
+				bound?.sync(typeof snap.value.autoStore === 'boolean' ? snap.value.autoStore : true, typeof snap.revision === 'number' ? snap.revision : 0);
+			};
+			scrScope.subscribe(sync);
+			const injected = function (actions) {
+				bound = actions;
+				sync();
+				return {
+					setAutoStore: function (v) {
+						actions.setAutoStore(v);
+						scrScope.set('autoStore', v === true);
+					}
+				};
+			};
+			ctx.slots.inject('settings.general.item', function () {
+				return ctx.slots.register({
+					name: 'settings.general.item',
+					id: 'scrivener',
+					order: -24,
+					store,
+					inject: injected
+				}, ScrSettingsRow);
+			});
 		}
 
 		const name = "scr-pane-client";
-		const inject = ["slots", "sessions"];
+		const inject = ["slots", "sessions", "settingsScope", "connection", "remote"];
 		exports.name = name;
 		exports.inject = inject;
 		exports.apply = apply;
