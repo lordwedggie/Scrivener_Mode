@@ -54,6 +54,7 @@ return {
     const dirtyTabs = new Set()
     const insertRanges = new Map()
     const selectionMemory = new Map()
+    const scrollMemory = new Map()
 
     function rangesFor(sessionId, tabKey) {
       if (sessionId === undefined) return []
@@ -243,6 +244,7 @@ return {
       const pending = pendingPair[0]
       const confirmPair = React.useState(false)
       const confirm = confirmPair[0]
+      const scrollContextRef = React.useState({ current: { session: undefined, tab: undefined } })[0]
 
       React.useEffect(function () { pendingRef.current = pending }, [pending])
       React.useEffect(function () { textsRef.current = texts }, [texts])
@@ -293,7 +295,21 @@ return {
       React.useEffect(function () {
         const el = editorRef.current
         if (el === null) return
+        const prev = scrollContextRef.current
+        if (prev.session !== undefined) {
+          let mem = scrollMemory.get(prev.session)
+          if (mem === undefined) {
+            mem = { story: 0, image: 0, video: 0 }
+            scrollMemory.set(prev.session, mem)
+          }
+          mem[prev.tab] = el.scrollTop
+        }
+        scrollContextRef.current = { session: current, tab: tab }
         if (el.innerText !== text) renderEditor(el, text, current, tab)
+        if (current !== undefined) {
+          const mem = scrollMemory.get(current)
+          el.scrollTop = mem !== undefined ? (mem[tab] || 0) : 0
+        }
       }, [text, current, tab])
 
       React.useEffect(function () {
