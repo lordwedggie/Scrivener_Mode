@@ -27,6 +27,9 @@ return {
       '.scr-popup-row button:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}',
       '.scr-popup-row button:disabled{opacity:.5;cursor:default}',
       '.scr-instr{width:100%;box-sizing:border-box;background:transparent;border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));border-radius:6px;padding:6px 8px;color:var(--dsw-alias-label-primary,#eee);font-size:13px;outline:none}',
+      '.scr-confirm{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:300px;box-sizing:border-box;background:var(--dsw-specific-menu,var(--dsw-alias-bg-overlay,#262635));border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));border-radius:10px;padding:12px;box-shadow:var(--dsw-shadow-lv3,0 8px 24px rgba(0,0,0,.4));display:flex;flex-direction:column;gap:10px;pointer-events:auto;z-index:30}',
+      '.scr-confirm-text{font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,#eee)}',
+      '.scr-confirm .scr-popup-row button:last-child{color:#ffb08a;border-color:rgba(255,150,110,.45)}',
       '.scr-toggle{border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-primary,#eee);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}'
     ].join('\n'))
 
@@ -154,6 +157,8 @@ return {
       const popup = popupPair[0]
       const pendingPair = React.useState(null)
       const pending = pendingPair[0]
+      const confirmPair = React.useState(false)
+      const confirm = confirmPair[0]
 
       React.useEffect(function () { pendingRef.current = pending }, [pending])
       React.useEffect(function () { textRef.current = text }, [text])
@@ -571,6 +576,25 @@ return {
         })
       }
 
+      function clearDraft() {
+        confirmPair[1](false)
+        unmarkSelection()
+        textPair[1]('')
+        if (current !== undefined) {
+          drafts.set(current, '')
+          dirtySessions.add(current)
+        }
+        statusPair[1]('clearing draft.md…')
+        host.call('scrivener/save', { cwd: cwd === undefined ? null : cwd, sessionId: current, text: '' }).then(function (res) {
+          if (res && res.ok) {
+            if (current !== undefined) dirtySessions.delete(current)
+            statusPair[1]('draft.md cleared')
+          } else statusPair[1]('clear failed: ' + (res && res.error ? res.error : 'unknown'))
+        }).catch(function (error) {
+          statusPair[1]('clear failed: ' + String((error && error.message) || error))
+        })
+      }
+
       function copyDraft() {
         const t = text || ''
         function ok() { statusPair[1]('copied') }
@@ -675,11 +699,20 @@ return {
         })
       )
 
+      const confirmEl = confirm ? React.createElement('div', { className: 'scr-confirm' },
+        React.createElement('div', { className: 'scr-confirm-text' }, 'Clear draft.md? This empties the editor and overwrites draft.md with empty content.'),
+        React.createElement('div', { className: 'scr-popup-row' },
+          React.createElement('button', { type: 'button', onClick: function () { confirmPair[1](false) } }, 'Cancel'),
+          React.createElement('button', { type: 'button', onClick: clearDraft }, 'Clear')
+        )
+      ) : null
+
       const foot = React.createElement('div', { className: 'scr-foot' },
         React.createElement('span', null, words + ' words · ' + text.length + ' chars'),
         React.createElement('button', { className: 'scr-btn', onClick: reloadDraft }, 'Reload'),
         React.createElement('button', { className: 'scr-btn', onClick: copyDraft }, 'Copy'),
         React.createElement('button', { className: 'scr-btn', onClick: saveDraft }, 'Save'),
+        React.createElement('button', { className: 'scr-btn', disabled: pending !== null, onClick: function () { dismissPopup(); confirmPair[1](true) } }, 'Clear'),
         React.createElement('span', { className: 'scr-status' }, status)
       )
 
@@ -688,8 +721,9 @@ return {
         className: 'scr-pane',
         onMouseDown: function (event) {
           const target = event && event.target
-          if (target && typeof target.closest === 'function' && target.closest('.scr-popup')) return
+          if (target && typeof target.closest === 'function' && (target.closest('.scr-popup') || target.closest('.scr-confirm'))) return
           dismissPopup()
+          confirmPair[1](false)
         }
       },
         React.createElement('div', { className: 'scr-head' },
@@ -703,6 +737,7 @@ return {
         ),
         editorEl,
         popupEl,
+        confirmEl,
         foot
       )
     }
