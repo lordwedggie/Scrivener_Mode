@@ -5,7 +5,6 @@ window.__ModuleLoader__.load({
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 		var react = require("react");
-		var runtime = require("@deepseek-ai/dsh-client-runtime/client");
 
 		const CSS = [
 			'.scr-pane{position:relative;width:100%;height:100%;display:flex;flex-direction:column;background:var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-base,#1e1e28));border-left:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,#eee);font-size:14px}',
@@ -32,14 +31,17 @@ window.__ModuleLoader__.load({
 			'.scr-confirm-text{font-size:13px;line-height:1.5;color:var(--dsw-alias-label-primary,#eee)}',
 			'.scr-confirm .scr-popup-row button:last-child{color:#ffb08a;border-color:rgba(255,150,110,.45)}',
 			'.scr-toggle{border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-primary,#eee);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}',
-			'.scr-settings-row{flex-direction:column;gap:8px;padding:10px 0;display:flex}',
-			'.scr-settings-title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#eee)}',
-			'.scr-settings-line{justify-content:space-between;align-items:center;gap:12px;display:flex}',
-			'.scr-settings-label{font-size:13px;color:var(--dsw-alias-label-secondary,#bbb)}',
-			'.scr-settings-toggle{cursor:pointer;border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-primary,#eee);border-radius:999px;min-width:52px;padding:4px 12px;font-size:12px}',
-			'.scr-settings-toggle[data-on=true]{border-color:var(--dsw-alias-brand-primary,var(--dsw-static-deepseek-450,#3964fe));color:var(--dsw-alias-brand-primary,var(--dsw-static-deepseek-450,#3964fe))}',
-			'.scr-addbtn{border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.12));background:transparent;color:var(--dsw-alias-label-secondary,#bbb);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:12px}',
-			'.scr-addbtn:hover{color:var(--dsw-alias-label-primary,#eee);background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}'
+			'.scr-files{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:8px}',
+			'.scr-breadcrumbs{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:12px;color:var(--dsw-alias-label-secondary,#bbb)}',
+			'.scr-crumb{background:transparent;border:none;color:inherit;cursor:pointer;padding:2px 4px;border-radius:4px;font-size:12px}',
+			'.scr-crumb:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}',
+			'.scr-file-list{display:flex;flex-direction:column;gap:2px}',
+			'.scr-file-row{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;color:var(--dsw-alias-label-primary,#eee);font-size:13px}',
+			'.scr-file-row:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.06))}',
+			'.scr-file-kind{width:16px;text-align:center;color:var(--dsw-alias-label-tertiary,#999)}',
+			'.scr-file-size{margin-left:auto;color:var(--dsw-alias-label-tertiary,#999);font-size:11px}',
+			'.scr-file-preview{flex:1;overflow:auto;white-space:pre-wrap;background:var(--dsw-alias-bg-module-platform,rgba(255,255,255,.03));border:1px solid var(--dsw-alias-border-l2,rgba(255,255,255,.08));border-radius:8px;padding:10px;font-size:12px;line-height:1.6;color:var(--dsw-alias-label-primary,#eee)}',
+			'.scr-empty{color:var(--dsw-alias-label-tertiary,#999);font-size:12px;padding:8px}'
 		].join('\n');
 		const tagId = "scr-pane/pane.css";
 		if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
@@ -53,6 +55,11 @@ window.__ModuleLoader__.load({
 		function apiRead(cwd, file) {
 			const qs = '?file=' + encodeURIComponent(file) + '&cwd=' + encodeURIComponent(cwd === undefined ? '' : cwd);
 			return fetch('/scr-api/read' + qs).then(function (r) { return r.json(); });
+		}
+
+		function apiList(cwd, path) {
+			const qs = '?path=' + encodeURIComponent(path === undefined ? '' : path) + '&cwd=' + encodeURIComponent(cwd === undefined ? '' : cwd);
+			return fetch('/scr-api/list' + qs).then(function (r) { return r.json(); });
 		}
 		function apiSave(cwd, sessionId, file, text) {
 			return fetch('/scr-api/save', {
@@ -84,93 +91,9 @@ window.__ModuleLoader__.load({
 		const selectionMemory = new Map();
 		const scrollMemory = new Map();
 		let pluginCtx = undefined;
-		// Settings scope (bound in apply) and the pane's live bridge.
-		let scrScope = undefined;
-		let paneCtl = undefined;
-		// messageId -> { key: 'image'|'video', selected, text } for replies that
-		// produced a prompt while "Automatically add prompts" is OFF.
-		const promptReplies = new Map();
-
-		function appendPrompt(key, selected, text) {
-			if (paneCtl === undefined) return;
-			const file = key === 'image' ? 'images.md' : 'videos.md';
-			const firstLine = String(selected || '').split('\n').map(function (s) { return s.trim(); }).filter(Boolean)[0] || '';
-			const excerpt = firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine;
-			const header = excerpt === '' ? '## Prompt' : '## ' + excerpt;
-			const trimmed = String(text || '').trim();
-			const before = (paneCtl.tabText(key) || '').trimEnd();
-			const piece = before === '' ? header + '\n\n' + trimmed : before + '\n\n' + header + '\n\n' + trimmed;
-			paneCtl.setText(key, piece, paneCtl.currentNow());
-			const sid = paneCtl.currentNow();
-			if (sid !== undefined) {
-				const dkey = sid + '|' + key;
-				dirtyTabs.add(dkey);
-				paneCtl.save(sid, file, piece).then(function (res) {
-					if (res && res.ok) {
-						dirtyTabs.delete(dkey);
-						paneCtl.setStatus('prompt added to ' + (key === 'image' ? 'Image' : 'Video') + ' tab');
-					} else {
-						paneCtl.setStatus('add failed: ' + (res && res.error ? res.error : 'unknown'));
-					}
-				}).catch(function (error) {
-					paneCtl.setStatus('add failed: ' + String((error && error.message) || error));
-				});
-			}
-		}
-
-		function addPromptFromReply(messageId) {
-			if (messageId === undefined || messageId === null) return;
-			const rec = promptReplies.get(messageId);
-			if (rec === undefined) return;
-			promptReplies.delete(messageId);
-			appendPrompt(rec.key, rec.selected, rec.text);
-		}
-
-		function AddPromptButton(props) {
-			const rec = promptReplies.get(props.messageId);
-			if (rec === undefined) return null;
-			return react.createElement('button', {
-				type: 'button',
-				className: 'scr-addbtn',
-				title: 'Add this generated prompt to the ' + (rec.key === 'image' ? 'Image' : 'Video') + ' tab',
-				onClick: function () { addPromptFromReply(props.messageId); }
-			}, 'Add prompt');
-		}
-
-		function createScrSettingsStore() {
-			return runtime.defineStore({
-				init: () => ({
-					autoStore: true,
-					revision: -1
-				}),
-				actions: {
-					sync: (d, autoStore, revision) => {
-						if (revision <= d.revision) return;
-						d.autoStore = autoStore === true;
-						d.revision = revision;
-					},
-					setAutoStore: (d, v) => {
-						d.autoStore = v === true;
-					}
-				}
-			});
-		}
-
-		function ScrSettingsRow(props) {
-			const autoStore = props.useStore((s) => s.autoStore);
-			return react.createElement('div', { className: 'scr-settings-row' },
-				react.createElement('div', { className: 'scr-settings-title' }, 'Scrivener'),
-				react.createElement('div', { className: 'scr-settings-line' },
-					react.createElement('span', { className: 'scr-settings-label' }, 'Automatically add prompts'),
-					react.createElement('button', {
-						type: 'button',
-						className: 'scr-settings-toggle',
-						'data-on': autoStore === true ? 'true' : 'false',
-						onClick: function () { props.setAutoStore(!autoStore); }
-					}, autoStore === true ? 'On' : 'Off')
-				)
-			);
-		}
+		// messageIds of chat-only prompt replies already routed to the Image/Video
+		// tabs. The auto-feed must never append these to the story tab.
+		const promptReplyIds = new Set();
 
 		function rangesFor(sessionId, tabKey) {
 			if (sessionId === undefined) return [];
@@ -197,6 +120,16 @@ window.__ModuleLoader__.load({
 			const m = /^\s*```[a-zA-Z]*\s*\n([\s\S]*?)\n\s*```\s*$/.exec(t);
 			if (m !== null) return m[1];
 			return t;
+		}
+
+		// A chat-only prompt reply must never land in the story tab. Image prompts
+		// are required to begin with "A cinematic" and video prompts with
+		// "integrated_multimodal_description:", so those prefixes are a reliable
+		// prompt marker even when no pending action is tracked (chat-typed
+		// requests, pane remounts, or late replies arriving after a timeout).
+		function isPromptReplyText(text) {
+			const stripped = String(text || '').trim().replace(/^["'\u2018\u2019\u201c\u201d\s]+/, '').toLowerCase();
+			return stripped.indexOf('a cinematic') === 0 || stripped.indexOf('integrated_multimodal_description:') === 0;
 		}
 
 		function maxNodeSeq(snapshot) {
@@ -286,6 +219,129 @@ window.__ModuleLoader__.load({
 			return { top: top, left: left };
 		}
 
+		function joinRelPath(base, name) {
+			return base === '' ? name : base + '/' + name;
+		}
+
+		function parentRelPath(path) {
+			const i = path.lastIndexOf('/');
+			return i === -1 ? '' : path.slice(0, i);
+		}
+
+		function formatSize(bytes) {
+			if (typeof bytes !== 'number') return '';
+			if (bytes < 1024) return bytes + ' B';
+			if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+			return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+		}
+
+		function FilesBrowser(props) {
+			const [path, setPath] = react.useState('');
+			const [entries, setEntries] = react.useState([]);
+			const [preview, setPreview] = react.useState(null);
+			const [status, setStatus] = react.useState('');
+
+			react.useEffect(function () {
+				if (props.cwd === undefined) {
+					setEntries([]);
+					setPreview(null);
+					setStatus('no workspace');
+					return;
+				}
+				let alive = true;
+				apiList(props.cwd, path).then(function (res) {
+					if (!alive) return;
+					if (res && res.ok && Array.isArray(res.entries)) {
+						setEntries(res.entries);
+						setStatus('');
+					} else {
+						setEntries([]);
+						setStatus('cannot list: ' + (res && res.error ? res.error : 'unknown'));
+					}
+				}).catch(function (error) {
+					if (!alive) return;
+					setEntries([]);
+					setStatus('cannot list: ' + String((error && error.message) || error));
+				});
+				return function () { alive = false; };
+			}, [props.cwd, path]);
+
+			function openEntry(entry) {
+				if (entry.kind === 'dir') {
+					setPath(joinRelPath(path, entry.name));
+					setPreview(null);
+					setStatus('');
+					return;
+				}
+				apiRead(props.cwd, joinRelPath(path, entry.name)).then(function (res) {
+					if (res && res.ok && typeof res.text === 'string') {
+						setPreview({ name: entry.name, text: res.text });
+						setStatus('');
+					} else {
+						setPreview(null);
+						setStatus('cannot open file');
+					}
+				}).catch(function (error) {
+					setPreview(null);
+					setStatus('cannot open file: ' + String((error && error.message) || error));
+				});
+			}
+
+			const crumbs = [];
+			const segs = path === '' ? [] : path.split('/');
+			crumbs.push(react.createElement('button', { key: '__root', type: 'button', className: 'scr-crumb', onClick: function () { setPath(''); setPreview(null); } }, 'Workspace'));
+			let acc = '';
+			for (let i = 0; i < segs.length; i++) {
+				acc = acc === '' ? segs[i] : acc + '/' + segs[i];
+				const target = acc;
+				crumbs.push(react.createElement('span', { key: 'slash' + i }, '/'));
+				crumbs.push(react.createElement('button', { key: target, type: 'button', className: 'scr-crumb', onClick: (function (t) { return function () { setPath(t); setPreview(null); }; })(target) }, segs[i]));
+			}
+
+			const rows = entries.map(function (entry) {
+				const kind = entry.kind === 'dir' ? '📁' : entry.kind === 'file' ? '📄' : '•';
+				return react.createElement('div', {
+					key: entry.name,
+					className: 'scr-file-row',
+					onClick: function () { openEntry(entry); }
+				},
+					react.createElement('span', { className: 'scr-file-kind' }, kind),
+					react.createElement('span', null, entry.name),
+					typeof entry.size === 'number' ? react.createElement('span', { className: 'scr-file-size' }, formatSize(entry.size)) : null
+				);
+			});
+
+			const listEl = rows.length === 0 && status === ''
+				? react.createElement('div', { className: 'scr-empty' }, 'empty folder')
+				: react.createElement('div', { className: 'scr-file-list' }, rows);
+
+			const previewEl = preview === null ? null : react.createElement('div', null,
+				react.createElement('div', { className: 'scr-breadcrumbs' }, react.createElement('span', null, preview.name)),
+				react.createElement('div', { className: 'scr-file-preview' }, preview.text)
+			);
+
+			return react.createElement('div', { className: 'scr-files' },
+				react.createElement('div', { className: 'scr-breadcrumbs' }, crumbs),
+				listEl,
+				status !== '' ? react.createElement('div', { className: 'scr-empty' }, status) : null,
+				previewEl
+			);
+		}
+
+		function FilesPane(props) {
+			const cwd = props.useSessions(function (s) {
+				if (s.current === undefined) return undefined;
+				const row = s.byId[s.current];
+				return row ? row.cwd : undefined;
+			});
+			return react.createElement('div', { className: 'scr-pane' },
+				react.createElement('div', { className: 'scr-tabs' },
+					react.createElement('button', { type: 'button', className: 'scr-tab scr-tab-active' }, 'Files')
+				),
+				react.createElement(FilesBrowser, { cwd: cwd })
+			);
+		}
+
 		function Controller(props) {
 			const preset = props.useSessions(function (s) {
 				if (s.current === undefined) return undefined;
@@ -293,26 +349,23 @@ window.__ModuleLoader__.load({
 				return row ? row.agentPreset : undefined;
 			});
 			const sessionId = props.useSessions(function (s) { return s.current; });
-			// Registration follows the preset only.
+			// Every mode gets the right column: Scrivener keeps its editor tabs,
+			// every other mode gets the read-only Files browser.
 			react.useEffect(function () {
-				if (preset !== 'scrivener') return;
-				setPaneOpen(true);
 				const layout = pluginCtx.get('layout');
+				const Pane = preset === 'scrivener' ? ScrivenerPane : FilesPane;
+				setPaneOpen(true);
 				if (layout !== undefined) {
 					try { layout.openDetails(); } catch (e) {}
 				}
-				const disposeRegistration = pluginCtx.slots.register({ name: 'details', priority: -3 }, ScrivenerPane);
+				const disposeRegistration = pluginCtx.slots.register({ name: 'details', priority: -3 }, Pane);
 				return function () {
 					disposeRegistration();
-					if (layout !== undefined) {
-						try { layout.closeDetails(); } catch (e) {}
-					}
 				};
 			}, [preset]);
 			// The shipped shell closes the details column on session switch;
-			// re-open it on every session change while we are in Scrivener mode.
+			// re-open it on every session change for every mode.
 			react.useEffect(function () {
-				if (preset !== 'scrivener') return;
 				setPaneOpen(true);
 				const layout = pluginCtx.get('layout');
 				if (layout !== undefined) {
@@ -328,11 +381,11 @@ window.__ModuleLoader__.load({
 				return row ? row.agentPreset : undefined;
 			});
 			const paneOpen = usePaneOpen();
-			if (preset !== 'scrivener') return null;
+			const label = preset === 'scrivener' ? 'Scrivener' : 'Files';
 			return react.createElement('button', {
 				type: 'button',
 				className: 'scr-toggle',
-				title: 'Toggle the Scrivener editor pane',
+				title: 'Toggle the right-side pane',
 				onClick: function () {
 					const layout = pluginCtx.get('layout');
 					if (layout === undefined) return;
@@ -344,7 +397,7 @@ window.__ModuleLoader__.load({
 						setPaneOpen(true);
 					}
 				}
-			}, paneOpen ? 'Scrivener on' : 'Scrivener');
+			}, paneOpen ? (label + ' on') : label);
 		}
 
 		function ScrivenerPane(props) {
@@ -364,7 +417,7 @@ window.__ModuleLoader__.load({
 			const textsRef = react.useState({ current: texts })[0];
 			const tabPair = react.useState('story');
 			const tab = tabPair[0];
-			const text = texts[tab];
+			const text = tab === 'files' ? '' : texts[tab];
 			const statusPair = react.useState('');
 			const status = statusPair[0];
 			const popupPair = react.useState(null);
@@ -374,37 +427,6 @@ window.__ModuleLoader__.load({
 			const confirmPair = react.useState(false);
 			const confirm = confirmPair[0];
 			const scrollContextRef = react.useState({ current: { session: undefined, tab: undefined } })[0];
-			const autoStorePair = react.useState(true);
-			const autoStoreRef = react.useState({ current: true })[0];
-
-			react.useEffect(function () { autoStoreRef.current = autoStorePair[0]; }, [autoStorePair[0]]);
-
-			react.useEffect(function () {
-				if (scrScope === undefined) return;
-				const syncScope = function () {
-					const snap = scrScope.getSnapshot();
-					if (snap && snap.status === 'ready' && snap.value !== undefined && typeof snap.value.autoStore === 'boolean') {
-						autoStorePair[1](snap.value.autoStore);
-					} else {
-						autoStorePair[1](true);
-					}
-				};
-				syncScope();
-				return scrScope.subscribe(syncScope);
-			}, []);
-
-			react.useEffect(function () {
-				paneCtl = {
-					setText: setText,
-					setStatus: statusPair[1],
-					save: function (sid, file, text) { return apiSave(cwd, sid, file, text); },
-					currentNow: function () { return current; },
-					tabText: function (key) { return textsRef.current[key] || ''; }
-				};
-				return function () {
-					paneCtl = undefined;
-				};
-			}, [current, cwd]);
 
 			react.useEffect(function () { pendingRef.current = pending; }, [pending]);
 			react.useEffect(function () { textsRef.current = texts; }, [texts]);
@@ -444,7 +466,7 @@ window.__ModuleLoader__.load({
 			}, []);
 
 			react.useEffect(function () {
-				if (current === undefined) return;
+				if (current === undefined || tab === 'files') return;
 				const key = current + '|' + tab;
 				if (dirtyTabs.has(key)) return;
 				apiRead(cwd, fileForTab(tab)).then(function (res) {
@@ -534,6 +556,11 @@ window.__ModuleLoader__.load({
 					for (let i = 0; i < nodes.length; i++) {
 						const n = nodes[i];
 						if (n && n.kind === 'assistant' && n.interrupted !== true && n.messageId !== undefined && typeof n.seq === 'number') {
+							if (promptReplyIds.has(n.messageId)) {
+								promptReplyIds.delete(n.messageId);
+								continue;
+							}
+							if (isPromptReplyText(nodeText(n))) continue;
 							if (best === null || n.seq > best.seq) best = n;
 						}
 					}
@@ -619,16 +646,8 @@ window.__ModuleLoader__.load({
 								return;
 							}
 						}
-						if (autoStoreRef.current !== false) {
-							storePrompt(entry, reply);
-						} else {
-							if (messageId !== undefined && messageId !== null) {
-								promptReplies.set(messageId, { key: entry.action === 'image' ? 'image' : 'video', selected: entry.selected, text: trimmed });
-							}
-							pendingRef.current = null;
-							pendingPair[1](null);
-							statusPair[1]('prompt ready — use "Add prompt" under the reply');
-						}
+						if (messageId !== undefined && messageId !== null) promptReplyIds.add(messageId);
+						storePrompt(entry, reply);
 						return;
 					}
 					applyReplacement(entry, reply);
@@ -914,8 +933,8 @@ window.__ModuleLoader__.load({
 					refine: 'Refine the following passage from my manuscript: improve the prose while keeping the meaning, tone, and approximate length.',
 					rewrite: 'Rewrite the following passage from my manuscript in a fresh style: keep the core meaning but vary the phrasing and sentence rhythm.',
 					expand: 'Expand the following passage from my manuscript: add more detail, deepen the description, and significantly increase its length.',
-					image: 'Generate a detailed Krea2 t2i (text-to-image) prompt from the following scene in my story. Your reply must begin with the exact text "A cinematic" and nothing before it. Describe the subject, appearance, setting, art style, lighting, color palette, camera angle, and mood. Output ONLY the prompt itself, written as a single flowing paragraph of natural-language prose with no labels or headings. IMPORTANT: do NOT output JSON, code, or parameter lists — never include width, height, resolution, or any setting numbers.',
-					video: 'Generate a detailed MiniMax H3 (video + native audio) prompt from the following scene in my story. This request overrides your usual brief-chat behavior: brevity is forbidden, and you must write the complete prompt in full without stopping early. Your reply must begin with the exact text "integrated_multimodal_description:" and nothing before it. Output ONLY the prompt, written as flowing natural-language prose. IMPORTANT: do NOT output JSON, code, or parameter lists — never include resolution, fps, duration, or any setting numbers. Structure the prompt in exactly three labeled parts, ALL three required and fully developed: (1) "integrated_multimodal_description:" — shot-by-shot cinematic visuals with timestamps within a 4-15 second timeline (e.g., [Shot 1] …, [Shot 2] At 00:04.500, cut to …), covering subject, appearance, action, camera movement, pacing, and shot sequence; (2) "overall_soundscape:" — the diegetic audio: ambient sound, physical sounds, and ALL dialogue lines from the scene verbatim, timed to the visuals; (3) "non_diegetic_music:" — the score: mood, tempo, and instruments.'
+					image: 'First load the `krea2-prompt-suite` skill by calling the `skill` tool with that exact name, and follow its workflow to build the prompt. Then generate a detailed Krea2 t2i (text-to-image) prompt from the following scene in my story. Your reply must begin with the exact text "A cinematic" and nothing before it. Describe the subject, appearance, setting, art style, lighting, color palette, camera angle, and mood. Output ONLY the final prompt itself, written as a single flowing paragraph of natural-language prose with no labels or headings — do not include the skill\'s other output sections (no positive constraints, negative prompt, suggested settings, assumptions, or JSON). IMPORTANT: do NOT output JSON, code, or parameter lists — never include width, height, resolution, or any setting numbers.',
+					video: 'First load the `h3-prompt-writing` skill by calling the `skill` tool with that exact name and follow its base-mode (T2VA) structure. There are no reference images in this request, so do not add a first/last-frame alignment line. Then generate a detailed MiniMax H3 (video + native audio) prompt from the following scene in my story. This request overrides your usual brief-chat behavior: brevity is forbidden, and you must write the complete prompt in full without stopping early. Your reply must begin with the exact text "integrated_multimodal_description:" and nothing before it. Output ONLY the prompt, written as flowing natural-language prose. IMPORTANT: do NOT output JSON, code, or parameter lists — never include resolution, fps, duration, or any setting numbers. Use the official structure with exactly three labeled parts, ALL three required and fully developed: (1) "integrated_multimodal_description:" — [Shot 1] has no timestamp; later shots use the official cut notation such as [Shot 2] At 00:04.500, the camera cuts to …, covering subject, appearance, action, camera movement (motion type + amplitude + speed), pacing, dialogue verbatim inside <d>[Language] …</d> with speaker IDs such as (S1), and shot sequence; (2) "overall_soundscape:" — diegetic audio: ambient sound and physical sounds, without repeating dialogue; (3) "non_diegetic_music:" — the score: instrumentation, tempo, rhythm, and dynamics. Match the total timeline to the requested 4-15 seconds and never use community timecode formats.'
 				};
 				let msg = templates[action] || templates.refine;
 				const instr = String(instruction || '').trim();
@@ -1041,25 +1060,28 @@ window.__ModuleLoader__.load({
 
 			const words = (text.trim() === '') ? 0 : text.trim().split(/\s+/).length;
 
-			const editorEl = react.createElement('div', {
-				ref: function (node) { editorRef.current = node; },
-				className: 'scr-editor',
-				contentEditable: pending === null,
-				suppressContentEditableWarning: true,
-				spellCheck: false,
-				onInput: onInput,
-				onScroll: onEditorScroll,
-				onSelect: onSelectionEvent,
-				onMouseUp: onSelectionEvent,
-				onKeyUp: onSelectionEvent,
-				onKeyDown: onKeyDown,
-				onPaste: onPaste
-			});
+			const editorEl = tab === 'files'
+				? react.createElement(FilesBrowser, { cwd: cwd })
+				: react.createElement('div', {
+					ref: function (node) { editorRef.current = node; },
+					className: 'scr-editor',
+					contentEditable: pending === null,
+					suppressContentEditableWarning: true,
+					spellCheck: false,
+					onInput: onInput,
+					onScroll: onEditorScroll,
+					onSelect: onSelectionEvent,
+					onMouseUp: onSelectionEvent,
+					onKeyUp: onSelectionEvent,
+					onKeyDown: onKeyDown,
+					onPaste: onPaste
+				});
 
 			const tabBar = react.createElement('div', { className: 'scr-tabs' },
 				react.createElement('button', { type: 'button', className: tab === 'story' ? 'scr-tab scr-tab-active' : 'scr-tab', onClick: function () { selectTab('story'); } }, 'Story'),
 				react.createElement('button', { type: 'button', className: tab === 'image' ? 'scr-tab scr-tab-active' : 'scr-tab', onClick: function () { selectTab('image'); } }, 'Image'),
-				react.createElement('button', { type: 'button', className: tab === 'video' ? 'scr-tab scr-tab-active' : 'scr-tab', onClick: function () { selectTab('video'); } }, 'Video')
+				react.createElement('button', { type: 'button', className: tab === 'video' ? 'scr-tab scr-tab-active' : 'scr-tab', onClick: function () { selectTab('video'); } }, 'Video'),
+				react.createElement('button', { type: 'button', className: tab === 'files' ? 'scr-tab scr-tab-active' : 'scr-tab', onClick: function () { selectTab('files'); } }, 'Files')
 			);
 
 			const popupEl = popup === null ? null : react.createElement('div', {
@@ -1103,14 +1125,18 @@ window.__ModuleLoader__.load({
 				)
 			) : null;
 
-			const foot = react.createElement('div', { className: 'scr-foot' },
-				react.createElement('span', null, words + ' words · ' + text.length + ' chars'),
-				react.createElement('button', { className: 'scr-btn', onClick: reloadDraft }, 'Reload'),
-				react.createElement('button', { className: 'scr-btn', onClick: copyDraft }, 'Copy'),
-				react.createElement('button', { className: 'scr-btn', onClick: saveDraft }, 'Save'),
-				react.createElement('button', { className: 'scr-btn', disabled: pending !== null, onClick: function () { confirmPair[1](true); } }, 'Clear'),
-				react.createElement('span', { className: 'scr-status' }, status)
-			);
+			const foot = tab === 'files'
+				? react.createElement('div', { className: 'scr-foot' },
+					react.createElement('span', { className: 'scr-status' }, status)
+				)
+				: react.createElement('div', { className: 'scr-foot' },
+					react.createElement('span', null, words + ' words · ' + text.length + ' chars'),
+					react.createElement('button', { className: 'scr-btn', onClick: reloadDraft }, 'Reload'),
+					react.createElement('button', { className: 'scr-btn', onClick: copyDraft }, 'Copy'),
+					react.createElement('button', { className: 'scr-btn', onClick: saveDraft }, 'Save'),
+					react.createElement('button', { className: 'scr-btn', disabled: pending !== null, onClick: function () { confirmPair[1](true); } }, 'Clear'),
+					react.createElement('span', { className: 'scr-status' }, status)
+				);
 
 			return react.createElement('div', {
 				ref: function (node) { panelRef.current = node; },
@@ -1137,42 +1163,10 @@ window.__ModuleLoader__.load({
 			ctx.slots.inject('conversation.session.header.actions', function () {
 				return ctx.slots.register({ name: 'conversation.session.header.actions', id: 'scr-pane-toggle', order: 0, label: function () { return 'Scrivener'; } }, ToggleButton);
 			});
-			ctx.slots.inject('conversation.chat.assistant-actions', function () {
-				return ctx.slots.register({ name: 'conversation.chat.assistant-actions', id: 'scr-add-prompt', order: 0, label: function () { return 'Add prompt'; } }, AddPromptButton);
-			});
-			// Settings: the Scrivener row right below Agent Presets (order -25).
-			scrScope = ctx.settingsScope.bind({ namespace: 'scr-pane' });
-			const store = createScrSettingsStore();
-			let bound;
-			const sync = function () {
-				const snap = scrScope.getSnapshot();
-				if (snap.status !== 'ready' || snap.value === undefined) return;
-				bound?.sync(typeof snap.value.autoStore === 'boolean' ? snap.value.autoStore : true, typeof snap.revision === 'number' ? snap.revision : 0);
-			};
-			scrScope.subscribe(sync);
-			const injected = function (actions) {
-				bound = actions;
-				sync();
-				return {
-					setAutoStore: function (v) {
-						actions.setAutoStore(v);
-						scrScope.set('autoStore', v === true);
-					}
-				};
-			};
-			ctx.slots.inject('settings.general.item', function () {
-				return ctx.slots.register({
-					name: 'settings.general.item',
-					id: 'scrivener',
-					order: -24,
-					store,
-					inject: injected
-				}, ScrSettingsRow);
-			});
 		}
 
 		const name = "scr-pane-client";
-		const inject = ["slots", "sessions", "settingsScope", "connection", "remote"];
+		const inject = ["slots", "sessions"];
 		exports.name = name;
 		exports.inject = inject;
 		exports.apply = apply;

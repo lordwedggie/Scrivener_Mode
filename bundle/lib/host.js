@@ -1,12 +1,8 @@
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
-import z from '@deepseek-ai/schemastery'
 
 export const name = 'scr-pane-host'
 export const inject = ['webServer']
-
-/** Durable settings namespace schema: the pane's auto-store preference. */
-const SCR_SETTINGS_SCHEMA = z.object({ autoStore: z.boolean().default(true) })
 
 function dbg(message) {
   try {
@@ -27,14 +23,30 @@ export function apply(ctx) {
   const sessions = ctx.get('sessions')
   const policyService = ctx.get('sandboxPolicy')
 
-  ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.register('scr-pane', SCR_SETTINGS_SCHEMA)
-  })
-
   function pickFile(file) {
     if (file === 'images.md') return 'images.md'
     if (file === 'videos.md') return 'videos.md'
     return 'draft.md'
+  }
+
+  /**
+   * Normalize a workspace-relative path and reject anything that could escape
+   * the workspace (absolute paths, drive prefixes, or `..` segments).
+   * Returns null for invalid input and '' for the workspace root.
+   */
+  function safeRelativePath(value) {
+    if (typeof value !== 'string') return null
+    const trimmed = value.trim().replace(/\\/g, '/')
+    if (trimmed === '') return ''
+    if (trimmed.startsWith('/')) return null
+    if (/^[a-zA-Z]:/.test(trimmed)) return null
+    const out = []
+    for (const part of trimmed.split('/')) {
+      if (part === '' || part === '.') continue
+      if (part === '..') return null
+      out.push(part)
+    }
+    return out.join('/')
   }
 
   function json(res, code, body) {
@@ -93,16 +105,40 @@ export function apply(ctx) {
       try {
         const url = new URL(req.url ?? '/', 'http://x')
         const path = url.pathname
+        if (path === '/scr-api/debug') {
+          return json(res, 200, { ok: true, now: new Date().toISOString() })
+        }
         if (path === '/scr-api/read') {
           if (fs === undefined) return json(res, 500, { ok: false, error: 'fs service unavailable' })
           try {
             const cwd = url.searchParams.get('cwd') || undefined
-            const file = pickFile(url.searchParams.get('file') || '')
+            const file = safeRelativePath(url.searchParams.get('file') || '')
+            if (file === null) return json(res, 400, { ok: false, error: 'invalid path' })
             const target = await fs.resolve(file, cwd ? { cwd } : {})
             const info = await fs.stat(target)
             if (info === undefined) return json(res, 200, { ok: true, text: '', missing: true })
             const text = await fs.readText(target)
             return json(res, 200, { ok: true, text })
+          } catch (error) {
+            return json(res, 500, { ok: false, error: String((error && error.message) || error) })
+          }
+        }
+        if (path === '/scr-api/list') {
+          if (fs === undefined) return json(res, 500, { ok: false, error: 'fs service unavailable' })
+          try {
+            const cwd = url.searchParams.get('cwd') || undefined
+            const rel = safeRelativePath(url.searchParams.get('path') || '')
+            if (rel === null) return json(res, 400, { ok: false, error: 'invalid path' })
+            const target = await fs.resolve(rel === '' ? '.' : rel, cwd ? { cwd } : {})
+            const entries = await fs.listDir(target)
+            const mapped = entries.map(function (entry) {
+              return {
+                name: entry.name,
+                kind: entry.type === 'directory' ? 'dir' : entry.type === 'file' ? 'file' : 'other',
+                size: typeof entry.size === 'number' ? entry.size : undefined
+              }
+            })
+            return json(res, 200, { ok: true, path: rel, entries: mapped })
           } catch (error) {
             return json(res, 500, { ok: false, error: String((error && error.message) || error) })
           }
